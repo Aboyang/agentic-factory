@@ -1,0 +1,12 @@
+{
+  "name": "wrench-bot-factory",
+  "private": true,
+  "workspaces": ["server", "game"],
+  "scripts": {
+    "dev": "concurrently -k -n server,game -c blue,green \"npm run dev -w server\" \"npm run dev -w game\"",
+    "dev:mock": "MOCK_REAP=1 MOCK_AI=1 npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

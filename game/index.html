@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="An AI maintenance agent reads a simulated plant's sensors and logs, diagnoses failures and buys replacement parts through Reap." />
+    <meta name="color-scheme" content="dark" />
+    <title>Wrench-bot Factory</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%231b1f2a'/%3E%3Crect x='3' y='4' width='10' height='8' fill='%23ebcb8b'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%2388c0d0'/%3E%3Crect x='9' y='6' width='2' height='2' fill='%2388c0d0'/%3E%3Crect x='7' y='1' width='2' height='3' fill='%23bf616a'/%3E%3Crect x='5' y='13' width='2' height='2' fill='%234c566a'/%3E%3Crect x='9' y='13' width='2' height='2' fill='%234c566a'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Inter: every panel. VT323: the terminal log only. Press Start 2P: the title screen logo. -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+    <style>
+      /* Before the app CSS loads: dark page + boot screen, no flash of white. */
+      html, body { margin: 0; height: 100%; background: #12151c; overflow: hidden; }
+      #boot { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; background: #12151c; color: #eceff4;
+        font: 600 18px/1.5 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; text-align: center; transition: opacity 0.35s; }
+      #boot small { display: block; margin-top: 6px; font-size: 15px; font-weight: 400; color: #a3adbf; }
+      #boot.err { color: #f09aa2; }
+      #boot.out { opacity: 0; pointer-events: none; }
+      #boot .blink { animation: boot-blink 1.2s ease-in-out infinite; }
+      @keyframes boot-blink { 50% { opacity: 0.4; } }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="world"></div>
+      <div id="ui"></div>
+    </div>
+    <div id="boot" class="boot"><div>Wrench-bot Factory<small class="blink">Connecting to the plant…</small></div></div>
+    <noscript><p style="color:#eceff4;font-family:system-ui,sans-serif;padding:20px">Wrench-bot Factory needs JavaScript.</p></noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

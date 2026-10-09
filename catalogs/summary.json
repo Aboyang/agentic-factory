@@ -1,0 +1,11 @@
+[
+ {
+  "domain": "acteck.com",
+  "category": "Computers & Electronics",
+  "market": "MX",
+  "shopify": false,
+  "products": 0,
+  "complete": false,
+  "error": "RuntimeError: HTTP 429 "
+ }
+]

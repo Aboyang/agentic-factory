@@ -1,0 +1,16 @@
+{
+  "name": "factory-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "reap:smoke": "node scripts/reap-smoke.js",
+    "reap:enroll": "node scripts/enroll.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "viem": "^2.21.45"
+  }
+}
