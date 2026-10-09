@@ -1,0 +1,35 @@
+# Render Blueprint: one Node web service serves the API and the built game.
+# Secrets are entered in the Render dashboard (sync: false), never committed.
+services:
+  - type: web
+    name: wrench-bot-factory
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: REAP_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TREASURY_PRIVATE_KEY
+        sync: false
+      - key: REAP_BASE_URL
+        value: https://sandbox.api.reap.global
+      - key: REAP_VERSION
+        value: "2025-02-14"
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: INK_RPC_URL
+        value: https://rpc-gel-sepolia.inkonchain.com
+      - key: JUDGE_MODE
+        value: "1"
+      - key: KWAL
+        value: "0"
+      - key: TECH_PAYOUT_SCALE
+        value: "0.0001"
+      - key: ONCHAIN_MAX_PAYOUTS
+        value: "200"

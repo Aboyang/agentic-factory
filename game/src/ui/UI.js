@@ -4,8 +4,8 @@
 //   only while incidents are open) · hint chips over degraded / down machines ·
 //   speech bubble · floating texts · approval modal (pops by itself).
 // Everything else is a popup, one at a time (Esc / ✕ / click outside closes it):
-//   machine popover (right) · agent popup (left) · ☰ menu → Scenarios,
-//   Manager's Desk, Chaos, Spare parts (centred modals).
+//   machine popover (right) · agent popup (left) · ☰ menu → Manager dashboard,
+//   Scenarios, Manager's Desk, Chaos, Spare parts (centred modals).
 // director.js calls the methods below; panels never talk to the world directly.
 
 import { MACHINES, PRESETS } from '../../../shared/contract.js';
@@ -17,6 +17,7 @@ import { AgentPanel, ApprovalModal, escrowPaid, railText } from './agentpanel.js
 import { Desk } from './desk.js';
 import { Chaos } from './chaos.js';
 import { CatalogPanel } from './catalogpanel.js';
+import { Dashboard } from './dashboard.js';
 
 const $ = (html) => {
   const t = document.createElement('template');
@@ -37,14 +38,19 @@ const ICON = {
   sliders: svg('<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>'),
   bolt: svg('<path d="M13 2.5 4.5 14H11l-1 7.5L18.5 10H12z"/>'),
   box: svg('<path d="M21 7.5 12 3 3 7.5v9L12 21l9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/>'),
+  chart: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
 };
+// Judge mode (public demo): checkout is simulated, so the approval modal gets buttons.
+const JUDGE_APPROVAL_NOTE = "Demo approval — in the live app this is a one-tap approval on Reap's page";
 
 const MODALS = {
+  dash: { title: 'Manager dashboard', sub: 'Every purchase, payout and decision Wrench-bot made, across all shifts.' },
   desk: { title: "Manager's Desk", sub: 'The spending rules Wrench-bot must follow.' },
   chaos: { title: 'Chaos', sub: 'Break a part on purpose. Wrench-bot is not told: it has to notice.' },
   parts: { title: 'Spare parts', sub: 'The best live listing for every part, from Reap.' },
 };
 const MENU = [
+  { id: 'dash', label: 'Manager dashboard', sub: 'Past purchases and everything the agent did', icon: 'chart' },
   { id: 'scenarios', label: 'Scenarios', sub: 'Restart the shift with another situation', icon: 'play' },
   { id: 'agent', label: 'Wrench-bot', sub: 'What the agent is doing and why', icon: 'bot' },
   { id: 'desk', label: "Manager's Desk", sub: 'Spending limit, budget, trusted stores', icon: 'sliders' },
@@ -115,7 +121,7 @@ export class UI {
         </button>`).join('')}
         <div class="menu-foot">
           <div class="menu-modes" data-k="modes"></div>
-          <div class="menu-keys"><kbd>M</kbd> menu <kbd>L</kbd> log size <kbd>Space</kbd> pause <kbd>Esc</kbd> close</div>
+          <div class="menu-keys"><kbd>M</kbd> menu <kbd>D</kbd> dashboard <kbd>L</kbd> log size <kbd>Space</kbd> pause <kbd>Esc</kbd> close</div>
         </div>
       </nav>`)),
     );
@@ -177,6 +183,9 @@ export class UI {
     this.desk = new Desk(this.modals.desk.body, { api, toast });
     this.chaos = new Chaos(this.modals.chaos.body, { api, machines, toast });
     this.catalog = new CatalogPanel(this.modals.parts.body, { api, toast });
+    this.dash = safe('dashboard', () => new Dashboard(this.modals.dash.body, { api, machines, toast }));
+    // Judge mode: relabel the approval modal's footnote each time it re-renders.
+    safe('judgeNote', () => new MutationObserver(() => this.#judgeNote()).observe(this.modalRoot, { childList: true }));
 
     // ─── Input ───
     this.menuEl.addEventListener('click', (e) => {
@@ -224,6 +233,7 @@ export class UI {
     if (state.policy) this.setPolicy(state.policy);
     if ('treasury' in state) this.setTreasury(state.treasury);
     if (state.catalog) this.setCatalog(state.catalog);
+    if (state.ledger) safe('dash.setLedger', () => this.dash?.setLedger(state.ledger));
     safe('desk.addMerchants', () => this.desk.addMerchants(state.merchants || []));
     if (Array.isArray(state.logs)) this.loadLogs(state.logs);
     safe('agent.loadIncidents', () => this.agent.loadIncidents(state.incidents || [], state.sim));
@@ -245,7 +255,20 @@ export class UI {
     const modes = this.menuEl.querySelector('[data-k=modes]');
     if (modes) modes.innerHTML = modeBadges(mode);
     this.agent.setMode(mode);
-    this.modal.setMode(mode);
+    // Judge mode: the checkout is simulated, so the modal shows APPROVE / REJECT like mock Reap.
+    this.modal.setMode(mode?.judge ? { ...mode, mockReap: true } : mode);
+    this.#judgeNote();
+  }
+
+  /** EVENTS.LEDGER_ENTRY: one new line in the manager dashboard. */
+  ledgerEntry(entry) {
+    if (!entry) return;
+    safe('dash.add', () => this.dash?.add(entry));
+  }
+
+  /** SSE 'ledger.cleared' (POST /api/ledger/clear from any tab). */
+  ledgerCleared() {
+    safe('dash.cleared', () => this.dash?.cleared());
   }
 
   setPolicy(policy) {
@@ -435,6 +458,7 @@ export class UI {
     } else if (this.modals[name]) {
       this.modals[name].back.classList.remove('hidden');
       if (name === 'desk') this.#flag('desk', false);
+      if (name === 'dash') safe('dash.open', () => this.dash?.open());
       requestAnimationFrame(() => this.modals[name].back.querySelector('.pop-x')?.focus({ preventScroll: true }));
     }
   }
@@ -456,6 +480,7 @@ export class UI {
       safe('hud.setMenuOpen', () => this.hud?.setMenuOpen(false));
     } else if (this.modals[name]) {
       this.modals[name].back.classList.add('hidden');
+      if (name === 'dash') safe('dash.close', () => this.dash?.close());
     }
   }
 
@@ -586,10 +611,20 @@ export class UI {
     if (k === 'm') {
       e.preventDefault();
       this.togglePopup('menu');
+    } else if (k === 'd') {
+      e.preventDefault();
+      this.togglePopup('dash');
     } else if (k === 'l') {
       e.preventDefault();
       safe('log.toggleSize', () => this.log?.toggleSize());
     }
+  }
+
+  /** Judge mode: the approval modal's footnote says the buttons are a demo stand-in. */
+  #judgeNote() {
+    if (!this.mode?.judge) return;
+    const foot = this.modalRoot?.querySelector('.ap-m-foot');
+    if (foot && foot.textContent !== JUDGE_APPROVAL_NOTE) foot.textContent = JUDGE_APPROVAL_NOTE;
   }
 
   #renderChips() {

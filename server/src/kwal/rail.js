@@ -19,8 +19,8 @@ const PAYMENT_TIMEOUT_MS = 90_000;
 
 let lastFailure = null; // { code, at }
 
-/** The vault rail is on: a Kwal session exists, KWAL!=0, and we're not in offline (MOCK_REAP) mode. */
-export const kwalRailEnabled = () => !config.mockReap && kwalEnabled();
+/** The vault rail is on: a Kwal session exists, KWAL!=0, and we're not in offline (MOCK_REAP) or judge mode. */
+export const kwalRailEnabled = () => !config.mockReap && !config.judge && kwalEnabled();
 
 export function kwalCooldown() {
   if (lastFailure && Date.now() - lastFailure.at < COOLDOWN_MS) return lastFailure;

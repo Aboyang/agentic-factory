@@ -133,6 +133,14 @@ export class Director {
         ui.setTreasury(data.treasury || null);
         break;
 
+      case EVENTS.LEDGER_ENTRY: // manager dashboard history (not tied to the incident cards)
+        if (data.entry) ui.ledgerEntry?.(data.entry);
+        break;
+
+      case 'ledger.cleared': // server-only event after POST /api/ledger/clear
+        ui.ledgerCleared?.();
+        break;
+
       // ─── Incident lifecycle ───
       case EVENTS.INCIDENT_CREATED: {
         const inc = data.incident || {};

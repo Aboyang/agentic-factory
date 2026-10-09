@@ -12,6 +12,9 @@
 //   confirmPayout(escrow)                                → Promise<{ confirmed, error? }> for a payout still being mined
 
 import '../config.js'; // .env first
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { treasury, technicianAddress, sendUsdc, confirmUsdc, usdcBalance, ethBalance, txUrl } from '../chain/usdc.js';
 import { chainActive, chainOffReason, refreshAfterPayout } from '../chain/treasury.js';
@@ -32,10 +35,44 @@ const CONFIRM_TIMEOUT_MS = 45_000; // mined receipt
 const BALANCE_TIMEOUT_MS = 8_000;
 
 export const payoutUsdc = (technician) => round6((technician?.rate || 0) * PAYOUT_SCALE);
-export const usdcText = (n) => `${(Number(n) || 0).toFixed(2)} USDC`;
+/** '1.20 USDC', or '0.012 USDC' for the tiny judge-mode payouts. */
+export const usdcText = (n) => {
+  const v = Number(n) || 0;
+  return `${v >= 0.1 || v === 0 ? v.toFixed(2) : String(round6(v))} USDC`;
+};
+
+// Global cap on real onchain payouts (ONCHAIN_MAX_PAYOUTS, unset = no cap), so a
+// public demo can't drain the testnet treasury. The count survives restarts in
+// server/.cache/onchain.json; past the cap payouts are simulated.
+const capEnv = Number(process.env.ONCHAIN_MAX_PAYOUTS);
+export const MAX_ONCHAIN_PAYOUTS = Number.isFinite(capEnv) && capEnv >= 0 && process.env.ONCHAIN_MAX_PAYOUTS !== '' ? Math.floor(capEnv) : null;
+const COUNT_FILE = fileURLToPath(new URL('../../.cache/onchain.json', import.meta.url));
+let onchainPayouts = readCount();
+
+function readCount() {
+  try {
+    const n = Number(JSON.parse(fs.readFileSync(COUNT_FILE, 'utf8')).payouts);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function countPayout() {
+  onchainPayouts += 1;
+  try {
+    fs.mkdirSync(path.dirname(COUNT_FILE), { recursive: true });
+    fs.writeFileSync(COUNT_FILE, JSON.stringify({ payouts: onchainPayouts, updatedAt: new Date().toISOString() }));
+  } catch (err) {
+    console.warn(`[payout] could not save the payout count: ${err.message}`);
+  }
+}
+
+export const payoutCapReached = () => MAX_ONCHAIN_PAYOUTS !== null && onchainPayouts >= MAX_ONCHAIN_PAYOUTS;
+export const payoutStats = () => ({ onchainPayouts, max: MAX_ONCHAIN_PAYOUTS, capReached: payoutCapReached() });
 
 export function lockEscrow(technician, incidentId, { amountUsdc } = {}) {
-  const onchain = chainActive();
+  const onchain = chainActive() && !payoutCapReached();
   return {
     id: `esc_${randomUUID().slice(0, 8)}`,
     incidentId,
@@ -83,7 +120,7 @@ async function settle(escrow) {
   if (!chainActive()) return simulated(escrow, chainOffReason() || 'onchain payouts off');
   if (!escrow.to) return simulated(escrow, `no payout wallet for ${escrow.technicianId}`);
   if (!(escrow.amountUsdc > 0)) return simulated(escrow, 'nothing to pay');
-  return serial(() => transfer(escrow));
+  return serial(() => (payoutCapReached() ? simulated(escrow, 'demo payout cap reached') : transfer(escrow)));
 }
 
 async function transfer(escrow) {
@@ -103,6 +140,7 @@ async function transfer(escrow) {
   } catch (err) {
     return simulated(escrow, `transfer failed: ${brief(err)}`);
   }
+  countPayout();
   console.log(`[payout] ${escrow.id}: ${escrow.amountUsdc} USDC → ${escrow.to} tx ${hash}`);
 
   try {

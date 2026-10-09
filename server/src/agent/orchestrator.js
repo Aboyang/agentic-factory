@@ -35,6 +35,7 @@ const ACTIVE = new Set(['open', 'blocked', 'error']); // one of these per machin
 export const incidents = new Map(); // id → incident (public, sent to the game)
 const runtime = new Map(); // id → { controller, ruledOut, maintenance, lastOrder, labor, overtaken }
 const merchantsSeen = new Set();
+const demoApprovals = new Map(); // judge mode: checkoutId → resolve(approved: boolean)
 
 class IncidentStop extends Error {
   constructor(code, message, extra = {}) {
@@ -499,6 +500,7 @@ async function quoteWithFallback(ctx, found, express) {
 // 6. Pay. AUTO: Kwal USDC vault first (no approval page); any Kwal error → Reap card.
 async function pay(ctx, quote, verdict, part, confidence) {
   const { incident } = ctx;
+  if (config.judge) return payDemo(ctx, quote, verdict, part);
   if (verdict.action === 'AUTO' && kwalRailEnabled()) {
     const viaVault = await payFromVault(ctx, quote, part, confidence);
     if (viaVault) return viaVault;
@@ -536,6 +538,70 @@ async function pay(ctx, quote, verdict, part, confidence) {
   if (!autoApprove) ctx.log('APPROVAL', `Manager approved ${money(amount)}`, part.id);
   ctx.log('ORDER', `Ordered ${item?.qty || part.qty}× ${short(item?.name || part.name)} from ${quote.merchant} (${money(amount)}), order ${result.orderId || 'n/a'}`, part.id);
   return { orderId: result.orderId, approval: verdict.action, amount, rail: 'reap' };
+}
+
+// Judge mode: the quote is live, but the Reap checkout is simulated (public
+// visitors can't confirm our passkey). AUTO completes at once; ESCALATE waits
+// for the game's approve/reject buttons (POST /api/mock/approve/:checkoutId).
+async function payDemo(ctx, quote, verdict, part) {
+  const { incident } = ctx;
+  const checkoutId = `chk_demo_${randomUUID().slice(0, 8)}`;
+  const autoApprove = verdict.action === 'AUTO';
+  if (autoApprove) {
+    ctx.think(`Within policy. Paying ${money(quote.total)} (demo checkout)…`);
+    await ctx.pause(1200);
+  } else {
+    ctx.think(`${money(quote.total)} needs the manager's OK: ${lowerFirst(verdict.reasons[0] || 'policy')}.`);
+    const answer = new Promise((resolve) => demoApprovals.set(checkoutId, resolve));
+    emit(EVENTS.APPROVAL_REQUIRED, { checkoutId, approvalUrl: null, total: quote.total, reasons: verdict.reasons, demo: true }, incident.id);
+    ctx.log('APPROVAL', `Approval requested: ${money(quote.total)} at ${quote.merchant}. ${verdict.reasons.join('; ')}`, part.id);
+    let approved;
+    let timer;
+    try {
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve('TIMEOUT'), APPROVAL_TIMEOUT_MS);
+      });
+      approved = await ctx.guard(Promise.race([answer, timeout]));
+    } finally {
+      clearTimeout(timer);
+      demoApprovals.delete(checkoutId);
+    }
+    if (approved !== true) {
+      const status = approved === 'TIMEOUT' ? 'TIMEOUT' : 'EXPIRED';
+      const reason = status === 'TIMEOUT' ? 'No answer from the manager' : 'The manager did not approve the order';
+      emit(EVENTS.CHECKOUT_FAILED, { checkoutId, status, reason, demo: true }, incident.id);
+      throw new IncidentStop(`CHECKOUT_${status}`, reason);
+    }
+  }
+
+  const amount = round2(Number(quote.total));
+  const orderId = `DEMO-${Math.floor(10000 + Math.random() * 90000)}`;
+  incident.spent = round2(incident.spent + amount);
+  recordSpend(amount);
+  sim.bump('partsSpend', amount);
+  emit(EVENTS.CHECKOUT_COMPLETED, {
+    checkoutId,
+    orderId,
+    finalAmount: { amount, currency: quote.currency || 'USD' },
+    rail: 'reap',
+    merchant: quote.merchant,
+    demo: true,
+  }, incident.id);
+  emit(EVENTS.POLICY_UPDATED, { policy: getPolicy() });
+
+  const item = quote.items?.[0];
+  if (!autoApprove) ctx.log('APPROVAL', `Manager approved ${money(amount)}`, part.id);
+  ctx.log('ORDER', `Ordered ${item?.qty || part.qty}× ${short(item?.name || part.name)} from ${quote.merchant} (${money(amount)}, demo checkout), order ${orderId}`, part.id);
+  return { orderId, approval: verdict.action, amount, rail: 'reap', simulated: true };
+}
+
+/** Judge mode: the manager's answer to a demo checkout. Returns null if nothing is waiting on it. */
+export function approveDemo(checkoutId, approve = true) {
+  const resolve = demoApprovals.get(checkoutId);
+  if (!resolve) return null;
+  demoApprovals.delete(checkoutId);
+  resolve(Boolean(approve));
+  return { id: checkoutId, status: approve ? 'PROCESSING' : 'EXPIRED', demo: true };
 }
 
 // Kwal vault rail. Returns the order, or null to fall back to the Reap card.

@@ -19,7 +19,7 @@ import { TECHNICIANS } from './technicians.js';
 const MAX_ENTRIES = 1000;
 const MAX_REMEMBERED = 200; // incidents whose context (quote, verdict…) we keep in memory
 const WRITE_DELAY_MS = 1000;
-const FILE = fileURLToPath(new URL('../../.cache/ledger.json', import.meta.url));
+const FILE = process.env.LEDGER_FILE || fileURLToPath(new URL('../../.cache/ledger.json', import.meta.url));
 
 let entries = [];
 let seq = 0;
