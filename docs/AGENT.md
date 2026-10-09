@@ -1,6 +1,6 @@
 # Wrench-bot: the maintenance agent
 
-Wrench-bot is the agent in Wrench-bot Factory. When a machine stops or a part starts wearing out, it works out which part is actually at fault from sensor telemetry and the plant log. It then finds the replacement in Reap's live catalog, gets a real quote and checks the manager's spending rules. Finally it pays, hires and pays a technician, and checks the fix against the simulator. This page explains how each of those decisions is made, who has the final say on each one, and where it happens in the code.
+Wrench-bot is the agent in Wrench-bot Factory. When a machine stops or a part starts wearing out, it works out which part is actually at fault from sensor telemetry and the plant log. It then finds the replacement in Reap's live catalog, gets a real quote and checks the manager's spending rules. Finally it pays for the part, hires a technician, checks the fix against the simulator and pays the technician. This page explains how each of those decisions is made, who has the final say on each one, and where it happens in the code.
 
 > **Docs:** [README](../README.md) · [Architecture](ARCHITECTURE.md) · **Agent** · [Payments](PAYMENTS.md) · [API](API.md) · [Simulation](SIMULATION.md) · [Judging guide](JUDGING.md)
 
