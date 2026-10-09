@@ -200,7 +200,7 @@ The 0.59 is the useful result. The model reads the falling rail and the rising r
 
 ### 5.5 Confidence
 
-The diagnosis confidence is the model's probability for the chosen part (`d.probabilities[component.name]`). The policy receives `min(diagnosis confidence, listing-choice confidence)` (`orchestrator.js` `run()`), so the agent must be sure about both the part and the listing. The UI flags any value under the manager's bar with "(below your 75% bar)".
+The diagnosis confidence is the model's probability for the chosen part (`d.probabilities[component.name]`). The policy receives the diagnosis confidence (`orchestrator.js` `run()`): the question that matters for spending is whether this is the right part. The listing-choice confidence is shown but not gated, since near-identical listings naturally split the probability. The UI flags any value under the manager's bar with "(below your 75% bar)".
 
 ---
 

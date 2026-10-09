@@ -2,6 +2,7 @@
 // Keep the return shapes stable; the game renders them.
 
 import { reap } from './index.js';
+import { config } from '../config.js';
 import { ReapError } from './client.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -45,7 +46,10 @@ export async function refreshQuote(quote, parts, opts) {
  * autoApprove=false → returns approvalUrl; the manager must approve on Reap's page.
  */
 export async function startCheckout(quote, { autoApprove }) {
-  const co = await reap.createCheckout(quote.quoteId, autoApprove ? { simulate: 'COMPLETED' } : {});
+  // Reap's sandbox cannot place real merchant orders: without the simulate header an approved
+  // checkout ends FAILED. The manager still approves on Reap's page either way.
+  const sandbox = /sandbox/.test(config.reap.baseUrl);
+  const co = await reap.createCheckout(quote.quoteId, sandbox || autoApprove ? { simulate: 'COMPLETED' } : {});
   return {
     checkoutId: co.id,
     status: co.status,

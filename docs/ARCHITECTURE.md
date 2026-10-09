@@ -369,7 +369,7 @@ stateDiagram-v2
 | 2 | Diagnose | `diagnose()`: candidates = parts not yet ruled out (predictive: only the parts in WARN) | `agent.diagnosis` | held |
 | 3 | Source | `searchCatalog()` → `findReplacement()` | `agent.searching`, `catalog.results` | held |
 | 4 | Quote | `quoteWithFallback()`: tries up to 3 listings on `QUOTE_RETRY_CODES` | `procurement.quote` | held |
-| 5 | Policy | `evaluate({ total, merchant, confidence })`, where confidence = `min(diagnosis, listing choice)` | `policy.decision` | held |
+| 5 | Policy | `evaluate({ total, merchant, confidence })`, where confidence = the diagnosis confidence (the listing choice is shown, not gated) | `policy.decision` | held |
 | 6 | Pay | `pay()` → `payDemo()` / `payFromVault()` / Reap checkout + `pollCheckout()` | `checkout.*`, `policy.updated` | held |
 | 7 | Ship | `deliver()`: 3 game-min express, 6 standard. Express only if the machine is stopped and the policy allows it (`wantsExpress()`) | `delivery.*` | **runs** |
 | 8 | Repair | `repair()`: technician picked by `decide()`, escrow locked, 2 min travel + 4 min repair under maintenance lockout | `technician.*`, `part.replaced` | **runs** |

@@ -624,7 +624,7 @@ All three outcomes, captured:
   "reasons": ["bashfashion is not an approved store"], "total": 74.04, "confidence": 0.8095 } }
 ```
 
-`confidence` is `min(diagnosis confidence, listing-choice confidence)` (`run()` in `orchestrator.js`). In the AUTO example the diagnosis was 0.949 and the listing choice was 0.8095, so the policy saw 0.8095. `evaluate()` checks the store allowlist first and returns `BLOCK` with that single reason. Otherwise it collects every reason that applies (over budget, over the auto-approve limit, below the confidence threshold), and **any reason means `ESCALATE`**.
+`confidence` is the diagnosis confidence (`run()` in `orchestrator.js`); the listing-choice confidence is reported in `catalog.results` but does not gate spending, because the model spreads probability across near-identical listings. `evaluate()` checks the store allowlist first and returns `BLOCK` with that single reason. Otherwise it collects every reason that applies (over budget, over the auto-approve limit, below the confidence threshold), and **any reason means `ESCALATE`**.
 
 ### `checkout.approval_required`
 

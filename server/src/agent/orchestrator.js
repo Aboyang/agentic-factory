@@ -339,7 +339,9 @@ async function run(ctx) {
     const quote = await quoteWithFallback(ctx, found, wantsExpress(ctx));
 
     await ctx.step('approval');
-    const confidence = Math.min(part.confidence, found.confidence ?? 1);
+    // The spending gate uses the diagnosis confidence (is this the right part?). The listing
+    // choice spreads probability over near-identical listings, so it is shown, not gated.
+    const confidence = part.confidence;
     const verdict = evaluate({ total: quote.total, merchant: quote.merchant, confidence });
     emit(EVENTS.POLICY_DECISION, { ...verdict, total: quote.total, confidence }, incident.id);
     ctx.log('POLICY', `Policy ${verdict.action}. ${verdict.reasons.join('. ')}`, part.id);

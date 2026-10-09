@@ -92,7 +92,7 @@ flowchart TD
 | 1 | Trusted-store allowlist (BLOCK) | `['Switch Electronics', 'Digitmakers.ca', 'Tech For Less']` | `DEFAULT_POLICY.allowedMerchants`, `evaluate()` |
 | 2 | Per-order auto-approve limit | $60 (Desk slider $0–$300, step $5) | `autoApproveLimit`; slider in [`desk.js`](../game/src/ui/desk.js) |
 | 3 | Monthly budget, based on settled amounts | $1,000 (Desk slider $100–$3,000, step $50) | `monthlyBudget`, `recordSpend()` |
-| 4 | Confidence floor | 75% (Desk slider 50%–95%, step 5%) | `confidenceThreshold`; `confidence = min(diagnosis, listing pick)` in `run()` |
+| 4 | Confidence floor | 75% (Desk slider 50%–95%, step 5%) | `confidenceThreshold`; `confidence` = the diagnosis confidence in `run()` |
 | 5 | Per-part unit price ceiling | Each part's `maxPrice`, e.g. servo $120, fuse $10. Pricier listings are never shortlisted. | `MACHINES[].components[].maxPrice` in [`shared/contract.js`](../shared/contract.js); `shortlistOf()` in [`catalog.js`](../server/src/catalog/catalog.js) |
 | 6 | At most 3 orders per incident | `MAX_ATTEMPTS = 3`, then `GAVE_UP` | `run()` in [`orchestrator.js`](../server/src/agent/orchestrator.js) |
 | 7 | At most one active incident per machine | statuses `open`, `blocked`, `error` | `activeIncident()`, `startIncident()` |
@@ -115,7 +115,7 @@ this decides whether the agent may pay alone, must ask, or is blocked."*
 [`orchestrator.js`](../server/src/agent/orchestrator.js):
 
 ```js
-const confidence = Math.min(part.confidence, found.confidence ?? 1);
+const confidence = part.confidence; // diagnosis confidence gates spending
 const verdict = evaluate({ total: quote.total, merchant: quote.merchant, confidence });
 ```
 

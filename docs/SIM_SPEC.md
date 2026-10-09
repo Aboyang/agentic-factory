@@ -219,7 +219,7 @@ predictive → `Conveyor: Roller bearing wearing (vibration 5.1 mm/s)`.
    (plus the model explanation via `say()`). `sim.log('AGENT', …, 'DIAG', 'Diagnosis: <part> (87%)')`.
 3. **Source**: existing `findReplacement` + CATALOG_RESULTS (keep).
 4. **Quote**: existing `quoteWithFallback` (keep).
-5. **Policy**: confidence = min(diagnosis, listing choice). Keep evaluate/BLOCK/ESCALATE/AUTO.
+5. **Policy**: confidence = the diagnosis confidence. Keep evaluate/BLOCK/ESCALATE/AUTO.
 6. **Pay**: keep. On success `sim.bump('partsSpend', amount)` and AGENT log `Ordered …`.
 7. **Ship**: `etaMinutes = express ? 3 : 6`; emit DELIVERY_DISPATCHED `{ etaMinutes, shipping }`;
    `await sim.waitMinutes(etaMinutes)`; DELIVERY_ARRIVED.
