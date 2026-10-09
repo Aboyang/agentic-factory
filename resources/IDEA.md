@@ -41,7 +41,7 @@ A top-down pixel-art factory floor (Stardew / Factorio style):
                           ▼
  🤖 Wrench-bot walks over and inspects
       • GPT writes the diagnosis ("Proximity sensor not responding")
-      • Jev scores severity and picks the right part from the candidates
+      • Decisions API looks at the machine (image + state), scores severity, picks the part
                           │
                           ▼
  🖥️ Procurement terminal: real Reap product search → quote (price + shipping)
@@ -68,28 +68,31 @@ The agent has three layers, each with one job.
 
 | Layer | Powered by | Job |
 |---|---|---|
-| **Fast decisions** | **Jev** (TypeSafe AI) | Quick, structured calls every game tick, each returning probabilities and a confidence figure |
+| **Fast decisions** | **OpenAI Decisions API** (hackathon credits). Fallback: TypeSafe **Jev** | Quick, structured calls every game tick, each returning probabilities and a confidence figure. Accepts images, so the robot can "see" the broken machine. |
 | **Slow reasoning** | **OpenAI GPT** (hackathon credits) | Diagnosis, the robot's speech bubbles, explaining purchases, the incident report |
 | **Hard limits** | **Plain code + Reap approval** | Spending caps, budget, approved stores. These are never left to a model. |
 
-### What Jev decides
-Jev evaluates the game state against typed questions:
+### What the decision model decides
+The Decisions API evaluates the game state (text, plus an image of the machine) against typed questions:
 
-| Question | Jev type | Example output |
+| Question | Answer type | Example output |
 |---|---|---|
 | How severe is this failure? | score (1–5) | `4 · confidence 0.91` |
+| Which part failed? (from a machine image) | choice (image input) | `proximity sensor: 0.86, relay: 0.11, …` |
 | Which replacement part is correct? | choice (from search results) | `PIP-T18L-001: 0.88, PIP-T12L-001: 0.09, …` |
 | Buy now, wait, or ask the manager? | choice | `buy_now: 0.72, escalate: 0.25, wait: 0.03` |
 | Which technician should go? | choice | `Tech #2 (servo specialist): 0.81` |
 | Is the machine fixed? | yes/no | `yes · 0.95` |
 
-> Note: Jev is from **TypeSafe AI**, not OpenAI. Its founder previously worked at OpenAI. It's available through TypeSafe's API, OpenRouter and the Vercel AI Gateway. We need our own API key; the hackathon credits only cover OpenAI. **Fallback:** if Jev isn't available, GPT answers the same typed questions behind the same interface.
+> **Why OpenAI's Decisions API:** it went to public beta on 6 October 2026, runs on GPT-6 Luna, returns typed answers (yes/no, choices with confidence, scores), accepts **images**, and is covered by the hackathon's OpenAI credits. OpenAI quotes $0.10 per million input tokens with no output charges.
+>
+> **Fallback:** TypeSafe AI's **Jev** (released 15 September 2026; not an OpenAI model, text only) can answer the same typed questions. Both sit behind one `decide()` interface, so we can switch providers if the beta API misbehaves. Last resort: plain GPT with structured output.
 
 ### The rule that makes it a payments product
 **The agent pays when it's sure and asks when it isn't.**
 
 - High confidence **and** under the auto-approve limit → the agent buys on its own
-- Low confidence (e.g. "sensor 54% / relay 46%") → the agent stops, the game shows Jev's probability bars, and the manager decides
+- Low confidence (e.g. "sensor 54% / relay 46%") → the agent stops, the game shows the decision model's probability bars, and the manager decides
 - Over the limit or over budget → always escalated, whatever the confidence
 
 The model only **recommends**. Code enforces the limits, and Reap's hosted approval page enforces the final charge. If a judge asks "what stops the AI from overspending?", that's the answer.
@@ -142,7 +145,7 @@ Reap sells physical products, not services, so the **technician marketplace is s
 
 **Stretch goal: pay-on-fix escrow in USDC (test network)**
 - When Wrench-bot books a technician, it locks the fee (e.g. $120 USDC) in escrow
-- When the machine's sensor reports healthy (Jev yes/no: "is it fixed?"), the escrow releases automatically
+- When the machine reports healthy (Decisions API yes/no: "is it fixed?", from the machine's image and state), the escrow releases automatically
 - **The money only moves when the fix is confirmed.** That's the onchain ↔ real-world story for prize track 2.
 
 If time runs short, simulate the escrow in the game and say so in the submission.
@@ -169,7 +172,7 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 
 1. **Intro (10s):** the factory is running, coins ticking up. "This is a real agent with real (sandbox) payments."
 2. **Small failure (25s):** chaos button → the sorter's sensor dies. The robot walks over, diagnoses, the terminal shows the real product and the **$52.05** quote. Under the limit and confident → **buys on its own**, and the order number appears.
-3. **Big failure (35s):** the robot arm fails, **$90+**, over the limit. The robot shows "?" and Jev's probability bars. **The manager approves on their phone** through Reap's page.
+3. **Big failure (35s):** the robot arm fails, **$90+**, over the limit. The robot shows "?" and the decision model's probability bars. **The manager approves on their phone** through Reap's page.
 4. **Repair (20s):** the truck arrives, the technician fixes the arm, the escrow releases, the machine turns green.
 5. **Controls (20s):** at the Manager's Desk, raise the limit and trigger another failure: now it auto-buys. Lower the budget: now everything escalates.
 6. **Wrap-up (10s):** "3 incidents, $206 spent, 41 minutes of downtime avoided."
@@ -180,7 +183,7 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 
 | Criterion | How we meet it |
 |---|---|
-| **Technical merit:** Agentic integration, payment authority, spending controls | Full Reap flow (search → quote → checkout → approval). Rules enforced in code and by Reap. Jev confidence decides when to ask a human. |
+| **Technical merit:** Agentic integration, payment authority, spending controls | Full Reap flow (search → quote → checkout → approval). Rules enforced in code and by Reap. The decision model's confidence decides when to ask a human. |
 | **Polish:** approval, error and payment states | Every state is a visible in-game moment (expired quote, out of stock, rejection, over budget, two stores) |
 | **Execution:** a working core, demonstrated convincingly | Pinned scenarios with parts already quoted. One full loop working before any extra features. |
 | **Wow factor:** originality, memorable demo | A playable game where an AI spends real (sandbox) money, and you can watch it decide |
@@ -194,7 +197,7 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 | Game | **Phaser 3 + Vite** (browser) | Sprites, tilemaps, animations and tweens built in. Fast to build. |
 | Art | Free CC0 pixel packs (Kenney.nl, itch.io factory tilesets) | No time to draw everything. Custom sprites only for Wrench-bot and the breakdown effects. |
 | Backend | **Node + Express** | Holds the Reap and AI keys (never in the browser), runs the agent loop, sends events to the game (WebSocket or SSE) |
-| Fast decisions | **Jev** via TypeSafe or OpenRouter | Typed choice, score and yes/no calls with confidence |
+| Fast decisions | **OpenAI Decisions API** (fallback: Jev via TypeSafe/OpenRouter) | Typed choice, score and yes/no calls with confidence; image input |
 | Reasoning | **OpenAI GPT** | Diagnosis, dialogue, incident reports |
 | Payments | **Reap Agentic API** (sandbox) | Required by the hackathon |
 | Escrow (stretch) | USDC on a test network | Pay on confirmed fix |
@@ -214,13 +217,13 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 
 | Time (SGT) | Game | Backend / agent | Third person |
 |---|---|---|---|
-| **→ 6:00** | Tile map, 4 machines, conveyor animation | **One full loop:** failure → search → quote → checkout → approval | Collect art packs, pin scenario variant IDs, get a Jev key |
-| **6:00–7:30** | Break and repair animations, robot walking, terminal popup | Policy engine, game events, GPT diagnosis, Jev decisions | Manager's Desk UI |
+| **→ 6:00** | Tile map, 4 machines, conveyor animation | **One full loop:** failure → search → quote → checkout → approval | Collect art packs, pin scenario variant IDs, test the Decisions API |
+| **6:00–7:30** | Break and repair animations, robot walking, terminal popup | Policy engine, game events, GPT diagnosis, Decisions API calls | Manager's Desk UI |
 | **7:30–8:15** | Connect everything, show error states in game | Escrow (stretch) | Demo script, record backup video |
 | **8:15–8:45** | Polish and bug fixes | Polish and bug fixes | Write the submission |
 | **8:45** | **Submit** (deadline 9:00 sharp) | | |
 
-**The rule that matters most:** one ugly but working full loop by **6 pm**. Polish and Jev come after.
+**The rule that matters most:** one ugly but working full loop by **6 pm**. Polish and the decision model come after.
 
 ---
 
@@ -228,7 +231,7 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 
 | Risk | Fallback |
 |---|---|
-| Jev key unavailable or slow | GPT answers the same typed questions behind the same interface |
+| Decisions API (beta) fails or is slow | Switch `decide()` to Jev, or to plain GPT with structured output |
 | Reap search returns different results | Pinned variant IDs per scenario |
 | Quote expires mid-demo | Re-quote automatically (and show it as a feature) |
 | Pixel art takes too long | Use asset packs as they are; colored boxes plus effects are fine |
@@ -247,6 +250,7 @@ Other parts available for more scenarios: limit switches, DC motors, motor drive
 ---
 
 ### Sources
+- [OpenAI opens Decisions API to all developers (Dealroom)](https://app.dealroom.co/news/note/openai-opens-decisions-api-to-all-developers-adding-image-input-in-challenge-to-typesafe-s-jev)
 - [Reap Agentic Payments docs](https://docs.reap.global/agentic-payments/overview)
 - [Hackathon participant guide](https://reap-hackathon-microsite.vercel.app/)
 - [What is Jev AI decision model (2026)](https://pooyagolchian.com/blog/what-is-jev-ai-decision-model-2026/)
