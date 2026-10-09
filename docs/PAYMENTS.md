@@ -157,7 +157,7 @@ Properties a reviewer can check directly in the code:
 
 | Verdict | Reason template | Example (amounts from live quotes) |
 |---|---|---|
-| `BLOCK` | `${merchant} is not an approved store` | `Tech For Less is not an approved store` |
+| `BLOCK` | `${merchant} is not an approved store` | `bashfashion is not an approved store` (Supplier gap, captured offline run) |
 | `ESCALATE` | `Over remaining budget ($${total} > $${remaining})` | `Over remaining budget ($64.06 > $38.00)` |
 | `ESCALATE` | `Over auto-approve limit ($${total} > $${limit})` | `Over auto-approve limit ($64.06 > $60)` |
 | `ESCALATE` | `Not sure enough (${pct}% < ${threshold}%)` | `Not sure enough (59% < 75%)` |
@@ -210,7 +210,7 @@ card ([`agentpanel.js`](../game/src/ui/agentpanel.js) `#approval()`), the approv
 |---|---|---|---|---|
 | **AUTO** | "$35.68 is within my limits. Buying it now." | green **Within limits: auto-buy** · `$35.68 · <pct>% sure` → "Paying…" → **Paid** `$35.68 · Paid by Reap card · order #…` | Live sandbox only, because Reap still asks for a tap: **"Within your limits — confirm on Reap (one tap)"** · *"This order passed every spending rule. Reap asks for one tap on its page before it charges the card."* · button **Confirm on Reap ↗** | `purchase`, approval `auto` |
 | **ESCALATE** | "I need your OK for this one: Not sure enough (59% < 75%)." | amber **Asks the manager** with the reasons as bullets → "Waiting for your decision on $X. **Review**" | **"Needs your decision"** · *"Wrench-bot stopped before paying: this order is outside the rules you set."* · **Why it asks you** (all reasons) · diagnosis + confidence · live downtime cost (*"The Robot Arm is down: −$60/min while you decide"*) · **Open Reap to decide ↗** / **Later** | `approval`, then `purchase` (approval `manager`) or `failed` |
-| **BLOCK** | "I'm not allowed to buy this: Tech For Less is not an approved store." | red **Blocked by policy** + *open desk* link. Incident chip **Blocked, needs you**. Error box `BLOCKED` with the hint *"Trust the store in the Manager's Desk, then retry."* and buttons **Retry** and **Open Manager's Desk** | none (no checkout is ever created) | `blocked`, approval `blocked` |
+| **BLOCK** | "I'm not allowed to buy this: bashfashion is not an approved store." | red **Blocked by policy** + *open desk* link. Incident chip **Blocked, needs you**. Error box `BLOCKED` with the hint *"Trust the store in the Manager's Desk, then retry."* and buttons **Retry** and **Open Manager's Desk** | none (no checkout is ever created) | `blocked`, approval `blocked` |
 
 Other details:
 

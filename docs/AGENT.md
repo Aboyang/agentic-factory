@@ -171,7 +171,7 @@ It trusts fault codes. At 08:06 in Brownout the scores are: servo 0.6 × 1.017 +
 
 The prior has three uses:
 1. **The comparison the user sees.** `AGENT_DIAGNOSIS` carries both `probabilities` (the model's) and `prior` (the rule's). The agent panel draws two bars per part, labelled with the provider name and "fault-code rule" (`agentpanel.js` `#diagnosis()`).
-2. **Offline behaviour.** The mock provider returns the prior, so `npm run dev:mock` plays the naive agent end to end ([section 12](#path-b-trust-the-fault-code-offline-recorded-run)).
+2. **Offline behaviour.** The mock provider returns the prior, so `npm run dev:mock` plays the naive agent end to end ([section 12](#124-path-b-trust-the-fault-code-offline-recorded-run)).
 3. **The evidence lines** (section 5.4).
 
 ### 5.3 Why the prior is kept from the model

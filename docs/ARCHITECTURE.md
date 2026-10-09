@@ -13,7 +13,7 @@ How Wrench-bot Factory is built: a single Node process runs the factory simulati
 - **One process holds all the state.** [`server/src/index.js`](../server/src/index.js) boots the simulation, the agent, the manager ledger and the treasury poller in one Express server. The browser runs no game logic: [`game/src/director.js`](../game/src/director.js) only turns server events into animation and panels.
 - **The agent sees only what a real plant shows.** Part health is a hidden variable inside [`server/src/sim/engine.js`](../server/src/sim/engine.js). The agent reads `sim.telemetryContext()` (readings, thresholds, severities, 10-minute trends) and the plant log. The game's terminal renders the same log lines.
 - **Spending decisions are plain code, not model output.** [`agent/policy.js`](../server/src/agent/policy.js) `evaluate()` returns `AUTO`, `ESCALATE` or `BLOCK`. The model only recommends a part. The Kwal vault path checks the policy again against Kwal's own price before any money moves (`approve` callback in [`kwal/rail.js`](../server/src/kwal/rail.js)).
-- **Every step is an event.** 27 event types (`EVENTS` in [`shared/contract.js`](../shared/contract.js)) pass through `emit()` in [`events.js`](../server/src/events.js). From there they go to every open SSE stream and to the ledger.
+- **Every step is an event.** 27 event types (`EVENTS` in [`shared/contract.js`](../shared/contract.js)), plus the server-only `ledger.cleared`, pass through `emit()` in [`events.js`](../server/src/events.js). From there they go to every open SSE stream and to the ledger.
 - **Every external dependency has a fallback in code.** OpenAI, Reap, Kwal, Ink Sepolia and WebGL can each fail without stopping the demo, and the log says which path ran ([§7](#7-modes-fallbacks-and-degradation)).
 
 ## Key numbers
@@ -229,7 +229,7 @@ Built by `state()` in `index.js`, returned by `GET /api/state`, and sent as the 
 | Money | `procurement.quote`, `policy.decision`, `checkout.approval_required`, `checkout.completed`, `checkout.failed`, `policy.updated` | `orchestrator.js`, `index.js` | per purchase / policy edit |
 | Physical | `delivery.dispatched`, `delivery.arrived`, `technician.dispatched`, `technician.repairing`, `part.replaced` | `orchestrator.js` | per attempt |
 | Onchain | `escrow.released`, `treasury.updated` | `orchestrator.js`, `chain/treasury.js` | per payout. Treasury every 20 s + after payouts |
-| History | `ledger.entry` | `agent/ledger.js` | per ledger row |
+| History | `ledger.entry`; `ledger.cleared` (server-only, not in `EVENTS`) | `agent/ledger.js`; `index.js` | per ledger row; on `POST /api/ledger/clear` |
 
 Payload shapes are documented inline next to each name in `EVENTS` ([`shared/contract.js`](../shared/contract.js)). The REST and SSE reference is in [API.md](API.md).
 

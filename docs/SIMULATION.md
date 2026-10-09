@@ -491,7 +491,7 @@ ties         → higher score, then higher max severity, then contract order
 | Motor driver | 0.318 | no | 0.191 | 0.033 |
 | Emergency stop button | 0.010 | no | 0.006 | 0.016 |
 
-With the servo ruled out after a failed swap, the same rule gives 24V power supply 0.595 / motor driver 0.274 / e-stop 0.131 at 08:06. Once the supply's decline has finished (from 08:07), it gives 0.650 / 0.248 / 0.103. Both are below the 0.75 bar, so the second order also goes to the manager.
+With the servo ruled out after a failed swap, the same rule gives 24V power supply 0.595 / motor driver 0.274 / e-stop 0.131 at 08:06. Once the supply's decline has finished (from 08:07), it hovers around 0.65 / 0.25 / 0.10 (seed 7, 08:07–08:14: supply between 0.643 and 0.657). Both are below the 0.75 bar, so the second order also goes to the manager.
 
 The rule is right whenever the faulting part is the failing part. On the presets with a single broken part at 08:03 it scores the right part at 0.9465 (proximity sensor), 0.9642 (barcode scanner) and 0.9646 (network switch). It is wrong exactly where the effects table says it will be.
 
@@ -517,7 +517,7 @@ While the plant is busy:
 | Chaos panel (`POST /api/sim/fault`) | refused with HTTP **409** `{ code: 'BUSY', error: 'One failure at a time: wait until the current repair is finished.' }`. The UI shows it as a toast. | `injectFault()`, `game/src/ui/chaos.js` |
 | Free-play scheduler | waits | `scheduleFailure()` (`quietSince === null`) |
 
-Example (Month-end crunch, headless run with an incident open from 08:03 to 08:17): the relay-board failure scripted for 08:14 was held and fired at **08:19**, two calm minutes after the first repair finished.
+Example (Month-end crunch, seed 7, run offline through the real orchestrator; the Packer job was open from 08:03 to 08:17): the relay-board failure scripted for 08:14 was held and fired at **08:20**. The calm timer starts on the first calm minute (08:18), and a held event then waits two more calm minutes.
 
 ### 10.2 Free-play failure scheduler
 
@@ -602,7 +602,7 @@ With predictive maintenance on, the monitor opens a **predictive** incident at 0
 | 08:03 | `FAULT E-PCK-410 Packer controller offline — Packet loss 40.0% (limit 40%)` · `ERROR M-DOWN Packer stopped: E-PCK-410`. Fault-code rule: network switch 0.9646. |
 | 08:03 (clock held) | With the observed $64.06 PoE-switch quote, `policy.evaluate()` returns **ESCALATE** with two reasons: `Over remaining budget ($64.06 > $38.00)` and `Over auto-approve limit ($64.06 > $60)`. The manager approves or declines on Reap's hosted page. In Judge mode the checkout is simulated with Approve / Reject buttons. |
 | 08:14 | The relay-board failure comes due. While the Packer job is still open it is **held**. |
-| two calm minutes after the Packer job closes | `FAULT E-SRT-220 Diverter relay not switching — Contact resistance 600 mΩ (limit 600 mΩ)` · `Sorter stopped`. The second order is checked against whatever budget is left after the manager's first decision. |
+| three game-minutes after the Packer job closes (08:20 in a seeded offline run) | `FAULT E-SRT-220 Diverter relay not switching — Contact resistance 600 mΩ (limit 600 mΩ)` · `Sorter stopped`. The second order is checked against whatever budget is left after the manager's first decision. |
 
 ### 11.5 Supplier gap (`untrusted`)
 
