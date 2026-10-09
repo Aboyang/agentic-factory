@@ -45,8 +45,8 @@ These four properties follow from how the routes are wired. Each can be checked 
 |---|---|---|
 | Base URL | `http://localhost:8787` (`PORT`, default `8787`). In development the Vite game on `:5173` proxies `/api` to `:8787`. In production (the live demo, link in the README) one service serves both the API and the built game. | [`config.js`](../server/src/config.js) `port`; [`game/vite.config.js`](../game/vite.config.js) `proxy` |
 | Format | JSON request and response bodies. Request bodies are capped at 1 MB. Send `Content-Type: application/json` on POST and PUT. | `express.json({ limit: '1mb' })` in `index.js` |
-| Errors | Always JSON: `{ "error": string, "code"?: string, ... }`, including malformed JSON (`400 Invalid JSON body`) and unknown `/api` paths (`404 No route GET /api/...`). The server never returns Express's HTML error page. | Error middleware and the `/api` 404 handler at the end of `index.js` |
-| Auth | **None.** The server holds one shared factory, so every viewer sees and controls the same simulation, and loading a scenario resets it for everyone. Public judge mode limits what a visitor can trigger: checkouts are simulated, onchain payouts are tiny and capped, and an idle factory resets itself ([run modes](#run-modes-and-how-they-change-the-api)). | Module-level state in `sim/engine.js`, `agent/orchestrator.js` and `agent/policy.js` |
+| Errors | Always JSON: `{ "error": string, "code"?: string, ... }`, including malformed JSON (`400 Invalid JSON body`) and unknown `/api` paths (`404 No route GET /api/...`). No `/api` route returns Express's HTML error page. | Error middleware and the `/api` 404 handler at the end of `index.js` |
+| Auth | **None.** The server holds one shared factory, so every viewer sees and controls the same simulation, and loading a scenario resets it for everyone. Public judge mode limits what a visitor can trigger: checkouts are simulated, onchain payouts are tiny and capped (the `render.yaml` settings), and an idle factory resets itself ([run modes](#run-modes-and-how-they-change-the-api)). | Module-level state in `sim/engine.js`, `agent/orchestrator.js` and `agent/policy.js` |
 | Time | `at` in events is epoch milliseconds (`Date.now()`). `t` is game minutes since the shift started, and `clock` is the in-game `HH:MM` (the shift starts at `08:00`). Ledger `at` is an ISO 8601 string. | `emit()` in `events.js`; `clockAt()` in `sim/engine.js` |
 | Game speed | One real second moves the game clock forward by `speed` minutes (1, 2, 4 or 8). The clock is held (`sim.held: true`) while the agent works in real time: model calls, store quotes, payment and the manager's approval. | `TICK_MS = 1000` and `hold()` in `sim/engine.js` |
 | Money | USD as decimal numbers (`21.24`). The Kwal rail and technician payouts use USDC numbers with up to 6 decimals. | `quoteParts()` in `reap/purchase.js`; `lockEscrow()` in `agent/technicians.js` |
@@ -288,7 +288,7 @@ The warm catalog holds the best usable listing for each of the 15 parts. It is b
                 "price": 3, "currency": "USD", "image": "https://cdn.shopify.com/...", "available": true, "qty": 1 } } ] } ] }
 ```
 
-Component `status` is `pending` (not searched yet), `ok`, or `none` (no usable listing). `source` is `live`, `offline` or `fallback`.
+Component `status` is `pending` (not searched yet), `ok`, or `none` (no usable listing). `source` is `live`, `offline`, `fallback` or `none`.
 
 #### `POST /api/catalog/refresh`
 
@@ -296,7 +296,9 @@ Returns `{ "ok": true }` at once. The rebuild runs in the background and emits `
 
 #### `GET /api/catalog/search?q=&merchant=`
 
-Raw normalised offers. Live mode calls Reap product search with `availability: AVAILABLE_ONLY`, limit 20 and an optional `merchantPreference: ONLY`. Results are cached for 10 minutes in memory and also on disk. If the live search fails, the server answers from the disk cache, then from the offline index (`searchOffers()` in `catalog/catalog.js`).
+Raw normalised offers. Live mode calls Reap product search with `availability: AVAILABLE_ONLY` and limit 20. Results are cached for 10 minutes in memory and also on disk. If the live search fails, the server answers from the disk cache, then from the offline index (`searchOffers()` in `catalog/catalog.js`).
+
+**Known gap in `merchant`:** `searchOffers()` builds a `merchantPreference: { mode: 'ONLY', merchantName }` option, but `reapLive.search()` in `reap/client.js` forwards only `filters`, so in live mode the store filter never reaches Reap and results from every store come back (the cache key still includes the store). The offline index does filter by store.
 
 ```bash
 curl -s "localhost:8787/api/catalog/search?q=relay&merchant=Switch%20Electronics" | jq '.[0]'
@@ -308,7 +310,7 @@ curl -s "localhost:8787/api/catalog/search?q=relay&merchant=Switch%20Electronics
   "image": "https://cdn.shopify.com/...", "available": true }
 ```
 
-Error: `500 { error, code }` when the upstream search fails with no cache to fall back on.
+A failed upstream search is not an error here: the route falls back to the disk cache and then to the offline index, which can return `[]`. `500 { error, code }` is returned only if something unexpected throws.
 
 #### `GET /api/catalog/replacement/:machineId/:componentId?model=1`
 
@@ -355,7 +357,7 @@ This route stands in for Reap's hosted approval page when no human can tap it: o
 | Mock | Moves the mock checkout to `PROCESSING` (then `COMPLETED` about 1.5 s later) or `EXPIRED` (`reapMock.approve()`) | the mock checkout object |
 | Live | Not available | `400 {"error":"Only available in mock or judge mode"}` |
 
-Unknown or already-settled id: `404 {"error":"unknown checkout"}`. A rejection leads to `checkout.failed { status: "EXPIRED" }` and then `incident.error { code: "CHECKOUT_EXPIRED" }`. If nobody answers within 10 minutes of real time (`APPROVAL_TIMEOUT_MS`), the result is `CHECKOUT_TIMEOUT`.
+Unknown id (and, in judge mode, a checkout that was already answered): `404 {"error":"unknown checkout"}`. A rejection leads to `checkout.failed { status: "EXPIRED" }` and then `incident.error { code: "CHECKOUT_EXPIRED" }`. If nobody answers within 10 minutes of real time (`APPROVAL_TIMEOUT_MS`), the result is `CHECKOUT_TIMEOUT`.
 
 ---
 
@@ -517,9 +519,9 @@ stateDiagram-v2
     open --> error: checkout failed, no parts, no quote, gave up
     blocked --> open: retry endpoint
     error --> open: retry endpoint
-    open --> cancelled: new preset loaded
-    blocked --> cancelled: new preset loaded
-    error --> cancelled: new preset loaded
+    open --> cancelled: new preset loaded, judge idle reset
+    blocked --> cancelled: new preset loaded, or superseded by a breakdown
+    error --> cancelled: new preset loaded, or superseded by a breakdown
     resolved --> [*]
     cancelled --> [*]
 ```
@@ -584,7 +586,7 @@ Brownout, **attempt 2**. Attempt 1 replaced the servo, the fault came back, and 
     "explanation": "Not the Gripper servo. Now the 24V power supply looks likeliest (65%): WARN W-ARM-301 active 14 min." } }
 ```
 
-- `probabilities` is the decision model's answer over the remaining candidates. `prior` is the naive fault-code heuristic from `sim/diagnostics.js`, sent so the UI can show it next to the model's read. The primary provider (`openai-decisions`) is deliberately **not** given the prior (`contextText({ ...req.context, prior: undefined })` in `openaiDecisions()`, `agent/decide.js`), because in the lead's live test on 9 Oct 2026 the model copied the prior whenever it could see it. The `gpt-structured` fallback does receive the prior, with a system instruction to override it when the signals point elsewhere. In offline mode the `mock` provider returns the prior, which is why the two maps match above.
+- `probabilities` is the decision model's answer over the remaining candidates. `prior` is the naive fault-code heuristic from `sim/diagnostics.js`, sent so the UI can show it next to the model's read. The primary provider (`openai-decisions`) is deliberately **not** given the prior (`contextText({ ...req.context, prior: undefined })` in `openaiDecisions()`, `agent/decide.js`), because in the team's live test on 9 Oct 2026 the model copied the prior when it was included in the input (servo at 0.95). The `gpt-structured` fallback does receive the prior, with a system instruction to override it when the signals point elsewhere. In offline mode the `mock` provider returns the prior, which is why the two maps match above.
 - `provider` is one of `openai-decisions`, `gpt-structured` or `mock` (`decide()` in `agent/decide.js`).
 - In the same live test of the Decisions API on this case, the model given the full context picked the 24V power supply at **0.59**. That is below the 0.75 bar, so the order escalates to the manager. See [AGENT.md](AGENT.md).
 
@@ -844,7 +846,7 @@ Which event produces which entry type (`observe()` in `ledger.js`):
 | 404 | any other `/api/*` | `{"error":"No route <METHOD> <url>"}` |
 | 409 | `POST /api/sim/fault` | `{"error":"One failure at a time: …","code":"BUSY"}` |
 | 409 | `POST /api/incidents/:id/retry` | `{"error":"Unknown incident <id>"}` or `{"error":"Incident is <status>"}` |
-| 500 | catalog search / replacement | `{ "error": "<upstream message>", "code": "<upstream code>" }` |
+| 500 | catalog search / replacement (only on an unexpected exception; failed searches fall back to the caches) | `{ "error": "<message>", "code": "<code>" }` |
 
 `PUT /api/policy` never fails. Invalid fields are ignored and the response shows the resulting policy, so clients should render the response rather than their request.
 
@@ -930,7 +932,7 @@ While the approval is pending, `GET /api/state` shows `sim.held: true`. The game
 
 ### C. Blocked store → manager trusts it → retry: "Supplier gap"
 
-The only store with the barcode scanner is not on this preset's allowlist (`["Switch Electronics", "Digitmakers.ca"]`).
+None of the stores that sell a qualifying barcode scanner is on this preset's allowlist (`["Switch Electronics", "Digitmakers.ca"]`).
 
 ```bash
 curl -s -X POST $B/sim/preset -H "$J" -d '{"id":"untrusted"}'

@@ -21,7 +21,7 @@
 | Who decides whether a payment goes ahead? | A 98-line, model-free policy module: **AUTO**, **ESCALATE** or **BLOCK**. | [`agent/policy.js`](../server/src/agent/policy.js) |
 | Default limits | $60 per order without asking · $1,000 monthly budget · 75% confidence · 3 trusted stores | `DEFAULT_POLICY` in [`policy.js`](../server/src/agent/policy.js) |
 | Parts rail | Reap Agentic Payments sandbox: enrollment → search → quote → shipping → checkout → hosted approval → status poll. Card: VISA ending 1811. | [`reap/client.js`](../server/src/reap/client.js), [`reap/purchase.js`](../server/src/reap/purchase.js), `pay()` in [`orchestrator.js`](../server/src/agent/orchestrator.js) |
-| Onchain spending cap for parts | A Kwal USDC vault on Ink Sepolia, funded with **8 USDC**. Its balance is the most its card can spend. Kwal's quote API currently returns `400 ParticipantBadRequest`, so the agent **falls back to the Reap card automatically**. | [`kwal/rail.js`](../server/src/kwal/rail.js), `payFromVault()` |
+| Onchain spending cap for parts | A Kwal USDC vault on Ink Sepolia, funded with **8 USDC**. Its balance is the most its card can spend. Kwal's variant and quote endpoints currently return `400 ParticipantBadRequest`, so the agent **falls back to the Reap card automatically**. | [`kwal/rail.js`](../server/src/kwal/rail.js), `payFromVault()` |
 | Labor rail | Real ERC-20 USDC `transfer` from the factory treasury to the technician's wallet, sent with viem. The escrow is **released only after the post-repair test run**, at most once per escrow. | [`agent/technicians.js`](../server/src/agent/technicians.js), [`chain/usdc.js`](../server/src/chain/usdc.js) |
 | Proof onchain | Vault deployment, 8 USDC funding and a 0.05 USDC technician payout. All three are linked in [§7.6](#76-verified-onchain-evidence). | Ink Sepolia explorer |
 | Audit trail | Every purchase, approval, block, failure, payout and decision is written to a persisted ledger: `GET /api/ledger` and the **Manager dashboard**. | [`agent/ledger.js`](../server/src/agent/ledger.js), [`game/src/ui/dashboard.js`](../game/src/ui/dashboard.js) |
@@ -55,7 +55,7 @@ the treasury balance cap what can actually be spent.*
 
 | Actor | What it can spend | What it cannot do | Enforced in |
 |---|---|---|---|
-| **Decision model** (OpenAI Decisions API, `gpt-6-luna`) | Nothing. | It cannot call Reap, Kwal or the chain. Its only effect on money is the `confidence` number, and the policy uses that number to **escalate**, never to approve. | `diagnose()` and `searchCatalog()` in [`orchestrator.js`](../server/src/agent/orchestrator.js) take only `answer` and `probabilities` from [`decide()`](../server/src/agent/decide.js) |
+| **Decision model** (OpenAI Decisions API, `gpt-6-luna`) | Nothing. | It cannot call Reap, Kwal or the chain. Its only effect on money is the `confidence` number, and the policy uses that number to **escalate**, never to approve. | `diagnose()` and `searchCatalog()` in [`orchestrator.js`](../server/src/agent/orchestrator.js) take only the `answer`, the `probabilities`, the `confidence` and a `provider` label from [`decide()`](../server/src/agent/decide.js) |
 | **Agent code** (`orchestrator.js`) | One part order per attempt, **only when the policy returns `AUTO`**. | It cannot change the policy or the budget, and it cannot approve its own escalations. For an escalated order it never sends `X-Simulate-Checkout`. | `run()` → `evaluate()` → `pay()` in [`orchestrator.js`](../server/src/agent/orchestrator.js) |
 | **Manager** (human, in the game) | Approves escalated orders with one tap on **Reap's hosted page**, or with the Approve button in mock or Judge mode. Edits limits, budget, confidence and trusted stores in the Manager's Desk. | The Desk cannot edit `spent`; only the settled amount of a completed checkout changes it. | `ApprovalModal` in [`agentpanel.js`](../game/src/ui/agentpanel.js), [`desk.js`](../game/src/ui/desk.js), `updatePolicy()` in [`policy.js`](../server/src/agent/policy.js) |
 | **Reap** (card issuer / checkout) | Charges the enrolled card (VISA ending 1811). | In the sandbox it charges nothing without a tap on its hosted page, even for AUTO orders ([§5](#5-reap-sandbox-findings-and-how-the-code-handles-them)). | Reap's `REQUIRES_ACTION` → `nextAction.url` |
@@ -173,11 +173,11 @@ Preset policies come from `PRESETS[].policy` in [`shared/contract.js`](../shared
 
 | Scenario | Preset policy | What happens at the policy step | Verdict |
 |---|---|---|---|
-| **Sensor burnout** | limit $60, budget $1,000, spent $0 | Proximity sensor live quote **$35.68** (incl. $24.98 shipping) from Switch Electronics, with high confidence | **AUTO** |
+| **Sensor burnout** | limit $60, budget $1,000, spent $0 | Proximity sensor live quote **$35.68** (incl. $24.98 shipping) from a trusted store, with high confidence | **AUTO** |
 | **Brownout** | limit $60, budget $1,000 | The fault code points at the servo. With full context the Decisions API picks the **24V power supply at 0.59**, which is below the 75% floor. | **ESCALATE**: `Not sure enough (59% < 75%)` |
 | **Grinding noise** | `predictiveMaintenance: true` | Bearing ordered while the conveyor still runs (standard shipping, because `wantsExpress()` needs a stopped machine) | AUTO if under $60 and confident |
 | **Month-end crunch** | budget **$150**, spent **$112** → **$38 left** | PoE switch quote **$64.06** from Tech For Less | **ESCALATE**: over remaining budget **and** over the $60 limit |
-| **Supplier gap** | `allowedMerchants: ['Switch Electronics', 'Digitmakers.ca']` | Barcode scanner: the qualifying listing is from Tech For Less | **BLOCK**: `Tech For Less is not an approved store` |
+| **Supplier gap** | `allowedMerchants: ['Switch Electronics', 'Digitmakers.ca']` | Barcode scanner: every listing that passes the spec filters comes from a store outside this list (in the cached search results, Tech For Less and bashfashion) | **BLOCK**: `<store> is not an approved store` |
 | **Free play** | defaults + predictive | Random wear, one failure at a time | any |
 
 The Brownout row matters for the payment story. When the naive fault-code prior was included in the model input, the
@@ -209,7 +209,7 @@ card ([`agentpanel.js`](../game/src/ui/agentpanel.js) `#approval()`), the approv
 | Verdict | Robot says | Agent card (Approve step) | Modal | Ledger row |
 |---|---|---|---|---|
 | **AUTO** | "$35.68 is within my limits. Buying it now." | green **Within limits: auto-buy** · `$35.68 · <pct>% sure` → "Paying…" → **Paid** `$35.68 · Paid by Reap card · order #…` | Live sandbox only, because Reap still asks for a tap: **"Within your limits — confirm on Reap (one tap)"** · *"This order passed every spending rule. Reap asks for one tap on its page before it charges the card."* · button **Confirm on Reap ↗** | `purchase`, approval `auto` |
-| **ESCALATE** | "I need your OK for this one: Not sure enough (59% < 75%)." | amber **Asks the manager** with the reasons as bullets → "Waiting for your decision on $X. **Review**" | **"Needs your decision"** · *"Wrench-bot stopped before paying: this order is outside the rules you set."* · **Why it asks you** (all reasons) · diagnosis + confidence · live downtime cost (*"The Robot Arm is down: −$60/min while you decide (waited 3 min, $180)"*) · **Open Reap to decide ↗** / **Later** | `approval`, then `purchase` (approval `manager`) or `failed` |
+| **ESCALATE** | "I need your OK for this one: Not sure enough (59% < 75%)." | amber **Asks the manager** with the reasons as bullets → "Waiting for your decision on $X. **Review**" | **"Needs your decision"** · *"Wrench-bot stopped before paying: this order is outside the rules you set."* · **Why it asks you** (all reasons) · diagnosis + confidence · live downtime cost (*"The Robot Arm is down: −$60/min while you decide"*) · **Open Reap to decide ↗** / **Later** | `approval`, then `purchase` (approval `manager`) or `failed` |
 | **BLOCK** | "I'm not allowed to buy this: Tech For Less is not an approved store." | red **Blocked by policy** + *open desk* link. Incident chip **Blocked, needs you**. Error box `BLOCKED` with the hint *"Trust the store in the Manager's Desk, then retry."* and buttons **Retry** and **Open Manager's Desk** | none (no checkout is ever created) | `blocked`, approval `blocked` |
 
 Other details:
@@ -217,7 +217,7 @@ Other details:
 - **The modal opens by itself** on `checkout.approval_required`. It queues several approvals ("2 more waiting"), and **Later** hides it while Reap keeps waiting (`ApprovalModal.open()` / `hide()`).
 - **A blocked store is flagged in the Manager's Desk** with a red **BLOCKED AN ORDER** chip until the manager trusts it (`flagMerchant()` in [`desk.js`](../game/src/ui/desk.js), called from the `policy.decision` and `incident.error` handlers in [`director.js`](../game/src/director.js)).
 - **Retry** calls `POST /api/incidents/:id/retry` → `retryIncident()`. It is allowed only from `error` or `blocked`. It resets the attempt counter and re-runs the **whole** pipeline: new diagnosis, new search, **new quote**, and a new `evaluate()` against the *current* policy. Trusting the store and pressing Retry is how a BLOCK clears.
-- **Rail label after payment:** `railText()` shows *"Paid by Reap card"* or *"Paid from Kwal vault (USDC)"* on the card and in the plant log (log codes `REAP` / `KWAL`).
+- **Rail label after payment:** `railText()` shows *"Paid by Reap card"* or *"Paid from Kwal vault (USDC)"* on the card and as a client-side plant-log note (codes `REAP` / `KWAL`).
 - **Mock and Judge modes** replace the Reap link with **Approve $X** / **Reject** buttons → `POST /api/mock/approve/:checkoutId`. The footnote says *"Offline mode: these buttons stand in for Reap's hosted approval page."* in mock mode and *"Demo approval — in the live app this is a one-tap approval on Reap's page"* in Judge mode (`JUDGE_APPROVAL_NOTE` in [`UI.js`](../game/src/ui/UI.js)).
 
 ---
@@ -304,7 +304,7 @@ The normalized quote that the game renders and the policy reads is defined in `q
 
 1. **One listing per quote, never a mixed cart.** `quoteWithFallback()` calls `quoteParts([offer])` with one offer at a time. Up to **3 listings** are tried in order: the model's pick, then the next-best shortlisted listings. `quoteParts()` also throws `MIXED_MERCHANTS` if it is ever handed parts from more than one store.
 2. **Quantity comes from the part spec** (`qty` in `MACHINES`). Example: the gripper uses 2 servos, and the live quote for **2× servo was $93.15**.
-3. The plant log line shows the full price breakdown, e.g. `QUOTE Switch Electronics: $35.68 total = parts $… + <option> shipping $24.98 + tax $…`.
+3. The plant log line shows the full price breakdown, e.g. `QUOTE <store>: $35.68 total = parts $… + <option> shipping $24.98 + tax $…`.
 4. **The policy is evaluated on the quote total**, not on the listing price. Shipping and tax count against the limit and the budget.
 
 ### 4.5 Checkout outcomes → spend accounting
@@ -314,7 +314,7 @@ On `COMPLETED`, `pay()` does the following, in order:
 - `amount = finalAmount.amount` (falls back to the quote total)
 - `incident.spent += amount`, `recordSpend(amount)` (the monthly budget), `sim.bump('partsSpend', amount)` (HUD KPI)
 - emits `checkout.completed { checkoutId, orderId, finalAmount, rail: 'reap' }`, then `policy.updated` (new `remaining`)
-- plant log: `APPROVAL Manager approved $X` (escalated only) and `ORDER Ordered 1× … from Switch Electronics ($35.68), order #…`
+- plant log: `APPROVAL Manager approved $X` (escalated only) and `ORDER Ordered 1× … from <store> ($35.68), order #…`
 
 Any other terminal status emits `checkout.failed` and stops the incident ([§8](#8-every-error-state)).
 
@@ -342,7 +342,7 @@ Found while building against the sandbox on 9 Oct 2026:
 | **Every sandbox checkout returns `REQUIRES_ACTION`**, even with `X-Simulate-Checkout: COMPLETED`, and needs one tap on Reap's hosted page. A test checkout left unapproved went `EXPIRED`. | "AUTO" orders still need a human tap in the sandbox | The policy still runs on our side, and the modal copy changes with the verdict: *"Within your limits — confirm on Reap (one tap)"* vs *"Needs your decision"*. If Reap ever skips the tap, `startCheckout()` returns `approvalUrl: null`, no approval event is emitted, and `pay()` goes straight to polling. No code change is needed. |
 | Reap **mandates** (pre-approved recurring terms) are documented as **"not available yet"** | Reap cannot hold our spending rules for us | `policy.js` enforces them (see its header comment). The Kwal vault adds an onchain cap ([§6](#6-the-kwal-vault-rail)). |
 | Card enrollment through the hosted page (Prava) took **about 15 min** to become `ACTIVE` (VISA ending 1811) | Not a live-demo step | One-time `npm run reap:enroll -w server`, which polls for up to 10 min. Without an ID, live checkouts stop with `NO_CARD`. |
-| Catalog depth: about 80 queries found **about 1,750 purchasable products**. All 15 machine parts map to live listings from Switch Electronics, Tech For Less and Digitmakers. | Real parts can be bought | `catalog.js` + verified fallbacks. Live quotes seen: proximity sensor **$35.68** (incl. $24.98 shipping), 2× servo **$93.15**, PoE switch **$64.06**, stepper **$30.00**. |
+| Catalog depth: about 80 queries found **about 1,750 purchasable products**. All 15 machine parts resolve to live listings, and the industrial depth is at Switch Electronics, Tech For Less and Digitmakers. | Real parts can be bought | `catalog.js` + verified fallbacks. Live quotes seen: proximity sensor **$35.68** (incl. $24.98 shipping), 2× servo **$93.15**, PoE switch **$64.06**, stepper **$30.00**. |
 
 ---
 
@@ -592,7 +592,7 @@ agent pipeline doesn't know the ledger exists, so it can't skip or alter an entr
 |---|---|---|
 | `incident.created` | `incident` | `Robot Arm down: E-ARM-310 Gripper position error` |
 | `agent.diagnosis` | `decision` | `Diagnosed the 24V power supply (59% sure)`, with confidence and provider |
-| `policy.decision` (BLOCK only) | `blocked` | `Blocked $X at Tech For Less for the Barcode scanner` |
+| `policy.decision` (BLOCK only) | `blocked` | `Blocked $X at <store> for the Barcode scanner` |
 | `checkout.approval_required` | `approval` | `Asked the manager to approve $64.06 at Tech For Less` |
 | `checkout.completed` | `purchase` | `Bought 2× FT5330M High Torque … from Switch Electronics`, with `rail`, `approval: auto\|manager`, `orderId` |
 | `checkout.failed` | `failed` | `Checkout failed at …: The manager did not approve the order` |
@@ -655,8 +655,9 @@ Only names are listed here.
 ```bash
 # Real purchase flow for one part, no game: live search → quote → checkout (AUTO path)
 npm run reap:smoke -w server sorter prox-sensor
-# Same, but without the simulate header (the escalated path): prints Reap's approval URL
-npm run reap:smoke -w server arm arm-psu --manual
+# Same, but without the simulate header (the escalated path): prints Reap's approval URL.
+# The `--` matters: without it npm swallows --manual and the AUTO path runs instead.
+npm run reap:smoke -w server -- arm arm-psu --manual
 
 # Enroll a card (enter it yourself on Reap's hosted page; prints REAP_ENROLLMENT_ID)
 npm run reap:enroll -w server
@@ -684,9 +685,9 @@ and **Sensor burnout** for an end-to-end AUTO purchase followed by an onchain pa
 |---|---|
 | Every live sandbox checkout needs one human tap | The sandbox ignores `X-Simulate-Checkout: COMPLETED` and Reap mandates aren't available yet. So "AUTO" means *the policy allowed it*, and the manager confirms with one tap on Reap's page. The modal copy says this openly. |
 | The Kwal vault has not completed a purchase yet | The vault is deployed, funded (8 USDC) and reported card-spendable. Kwal's variant and quote endpoints return `400 ParticipantBadRequest` for every product, so every order falls back to the Reap card. |
-| Theoretical double payment on the Kwal fallback | If a Kwal payment were still pending after 90 s, the agent logs it as `unconfirmed` and **still** falls back to the Reap card. This has never happened, because no Kwal payment has ever been created (the failure comes earlier, at the quote step). |
+| Theoretical double payment on the Kwal fallback | If a Kwal payment were still pending after 90 s, the agent logs it as `unconfirmed` and **still** falls back to the Reap card. This has never happened, because no Kwal payment has ever been created (the failure comes earlier, at the variant and quote steps). |
 | No automatic re-quote | `refreshQuote()` in `purchase.js` is a TODO stub. An expired quote shows as an error, and Retry re-quotes. |
-| Escrow is an offchain reservation | There is no escrow contract. The lock is a server-side record. The release is a real ERC-20 transfer. Payouts are testnet USDC, scaled 1:100 (1:10,000 in Judge mode). |
+| Escrow is an offchain reservation | There is no escrow contract. The lock is a server-side record. The release is a real ERC-20 transfer. Payouts are testnet USDC, scaled 1:100 (1:10,000 in the Judge deployment). |
 | Labor isn't counted against the monthly parts budget | `recordSpend()` runs only for parts. Labor is bounded by the fixed rate card, the scale, the treasury balance and the payout cap. |
 | The policy and approval endpoints have no authentication | `PUT /api/policy` and `POST /api/mock/approve/:id` are open, as a demo (and Judge mode) needs. A real deployment would put them behind the manager's login. |
 | `spent` resets with each scenario | The monthly budget is per shift preset. The ledger keeps history across scenarios and restarts. |

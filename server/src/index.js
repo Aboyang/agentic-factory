@@ -45,7 +45,8 @@ const mode = () => ({
   enrolled: Boolean(config.reap.enrollmentId) || isMockReap || config.judge,
   onchain: chainActive(),
   kwal: kwalRailEnabled(),
-  judge: config.judge, // checkout simulated: show the offline approve/reject buttons
+  judge: config.judge && !config.reap.enrollmentId, // demo checkout: show the stand-in approve/reject buttons
+  publicDemo: config.judge, //                       public judge deployment (live card checkout when enrolled)
 });
 const presetInfo = ({ id, name, tagline, teaches }) => ({ id, name, tagline, teaches });
 const machineById = (id) => MACHINES.find((m) => m.id === id);
@@ -287,7 +288,7 @@ app.listen(config.port, '0.0.0.0', () => {
   console.log(`Factory server on http://localhost:${config.port}`);
   console.log(`  Reap: ${isMockReap ? 'MOCK (offline catalog)' : 'LIVE sandbox'}${!isMockReap && !config.reap.enrollmentId ? '  ⚠ no REAP_ENROLLMENT_ID (run npm run reap:enroll -w server)' : ''}`);
   console.log(`  AI:   ${config.mockAi ? 'MOCK' : `OpenAI (${config.openai.model})`}`);
-  console.log(`  Pay:  technicians ${chainActive() ? 'onchain USDC (Ink Sepolia)' : `simulated (${chainOffReason()})`}, parts ${config.judge ? 'demo checkout (judge mode)' : kwalRailEnabled() ? 'Kwal vault then Reap card' : 'Reap card'}`);
+  console.log(`  Pay:  technicians ${chainActive() ? 'onchain USDC (Ink Sepolia)' : `simulated (${chainOffReason()})`}, parts ${config.judge && !config.reap.enrollmentId ? 'demo checkout (judge mode)' : kwalRailEnabled() ? 'Kwal vault then Reap card' : 'Reap card'}`);
   console.log(`  Sim:  "${BOOT_PRESET}" loaded, paused until a scenario is picked`);
   if (config.judge) console.log(`  Judge mode: Reap checkout simulated, idle reset after ${Math.round(IDLE_RESET_MS / 1000)} s`);
   if (fs.existsSync(path.join(GAME_DIST, 'index.html'))) console.log(`  Game: serving ${GAME_DIST}`);

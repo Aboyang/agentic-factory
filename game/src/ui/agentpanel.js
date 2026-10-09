@@ -1304,7 +1304,7 @@ export class ApprovalModal {
       </div>
       <small class="ap-m-foot">${this.mock
         ? 'Offline mode: these buttons stand in for Reap\'s hosted approval page.'
-        : 'Reap sandbox. The order continues by itself once Reap confirms.'}</small>
+        : 'Reap sandbox: on Reap\'s page choose SMS or email and enter the code <b>456789</b>. The order continues by itself once Reap confirms.'}</small>
     </div>`;
   }
 

@@ -500,7 +500,9 @@ async function quoteWithFallback(ctx, found, express) {
 // 6. Pay. AUTO: Kwal USDC vault first (no approval page); any Kwal error → Reap card.
 async function pay(ctx, quote, verdict, part, confidence) {
   const { incident } = ctx;
-  if (config.judge) return payDemo(ctx, quote, verdict, part);
+  // Public demo without our card on the server: simulated checkout. With REAP_ENROLLMENT_ID set,
+  // judges pay with the team's sandbox Visa and approve on Reap's page (sandbox code 456789).
+  if (config.judge && !config.reap.enrollmentId) return payDemo(ctx, quote, verdict, part);
   if (verdict.action === 'AUTO' && kwalRailEnabled()) {
     const viaVault = await payFromVault(ctx, quote, part, confidence);
     if (viaVault) return viaVault;

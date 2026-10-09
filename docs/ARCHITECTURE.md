@@ -153,8 +153,8 @@ flowchart TB
 | File | Responsibility | Key exports |
 |---|---|---|
 | [`server/src/catalog/catalog.js`](../server/src/catalog/catalog.js) | Live spare-parts search over Reap. Results are normalized and kept in a 10-minute in-memory cache plus a disk cache (`server/.cache/catalog.json`). Listings are filtered by spec keywords, `maxPrice` and availability, ranked by query overlap + 0.4 bonus for a trusted store − price penalty, and the top 5 form a shortlist. The decision model picks among the shortlist. At boot, `warmCatalog()` finds the best listing for all 15 parts. | `searchOffers`, `findReplacement`, `warmCatalog`, `getCatalog` |
-| [`server/src/catalog/fallback.js`](../server/src/catalog/fallback.js) | 12 listings verified against the Reap sandbox, used when nothing usable comes back. The barcode scanner has none on purpose: the *Supplier gap* scenario relies on that. | `FALLBACK_OFFERS` |
-| [`server/src/reap/client.js`](../server/src/reap/client.js) | Thin Reap Agentic client, one function per endpoint (search, details, variant, quotes, shipping option, checkouts, enrollments). Always sends `Reap-Version` and an `Idempotency-Key` on writes. Sandbox auto-approval uses `X-Simulate-Checkout`. | `reapLive`, `ReapError` |
+| [`server/src/catalog/fallback.js`](../server/src/catalog/fallback.js) | 12 entries verified against the Reap sandbox (11 distinct listings: both motor drivers map to the same L298N board), used when nothing usable comes back. The roller bearing, indicator light and barcode scanner have no entry, so they always come from live search or the disk cache. For the barcode scanner that means stores outside *Supplier gap*'s trusted list, which is what makes that scenario block. | `FALLBACK_OFFERS` |
+| [`server/src/reap/client.js`](../server/src/reap/client.js) | Thin Reap Agentic client, one function per endpoint (search, details, variant, quotes, shipping option, checkouts, enrollments). Sends `Reap-Version` on every call and a fresh `Idempotency-Key` when it creates a quote, a checkout or an enrollment. Sandbox auto-approval uses `X-Simulate-Checkout`. | `reapLive`, `ReapError` |
 | [`server/src/reap/purchase.js`](../server/src/reap/purchase.js) | The purchase flow the agent calls: `quoteParts()` (one merchant per quote, express shipping picked by name) and `startCheckout()`, which returns the hosted `approvalUrl`. | `quoteParts`, `startCheckout` |
 | [`server/src/reap/mock.js`](../server/src/reap/mock.js) + [`index.js`](../server/src/reap/index.js) | Offline Reap with the same interface. Quotes are priced locally: items + $6 standard or $18 express shipping + 8% tax. Checkouts wait for `POST /api/mock/approve/:checkoutId`. `reap/index.js` picks the live or mock client once, at import time. | `reapMock`, `reap`, `isMockReap` |
 | [`server/src/kwal/client.js`](../server/src/kwal/client.js) | Kwal (Payward) participant API: status, funding, products, variant, quote, shipping, payments. The session token is read from a credentials file outside the repo. | `kwal`, `kwalEnabled`, `kwalAmount` |
@@ -233,7 +233,7 @@ Built by `state()` in `index.js`, returned by `GET /api/state`, and sent as the 
 
 Payload shapes are documented inline next to each name in `EVENTS` ([`shared/contract.js`](../shared/contract.js)). The REST and SSE reference is in [API.md](API.md).
 
-**Plant-log lines are also the model's input.** `logLines()` in the orchestrator formats the last 20 lines of a machine's log exactly as the terminal shows them (`[08:14] FAULT E-ARM-310 Gripper position error — …`) and passes them to `decide()`. A judge reading the in-game log is reading what the model read.
+**Plant-log lines are also the model's input.** `logLines()` in the orchestrator takes the last 20 entries of a machine's log, the same entries the in-game terminal renders, formats each as `[clock] LEVEL CODE message` (`[08:14] FAULT E-ARM-310 Gripper position error — …`) and passes them to `decide()`. A judge reading the in-game log is reading what the model read.
 
 ### 4.4 Internal simulation events (never sent to the browser)
 
@@ -322,9 +322,10 @@ sequenceDiagram
     O->>M: choice question - which technician?
     O->>T: lockEscrow()
     O->>G: technician.dispatched
-    O->>S: waitMinutes(2) travel, setMaintenance(on), waitMinutes(4) repair
-    O->>S: replaceComponent()
-    O->>G: technician.repairing, part.replaced
+    O->>S: waitMinutes(2) travel, then setMaintenance(on)
+    O->>G: technician.repairing
+    O->>S: waitMinutes(4) repair, then replaceComponent()
+    O->>G: part.replaced
     O->>S: waitMinutes(2) test run, then isHealthy()
     O->>M: yes or no - working again? (reported, the sensors decide)
     O->>T: releaseEscrow()
@@ -350,9 +351,9 @@ stateDiagram-v2
     open --> error: stop code or exception
     blocked --> open: retry
     error --> open: retry
-    open --> cancelled: preset load, superseded, idle reset
-    blocked --> cancelled
-    error --> cancelled
+    open --> cancelled: preset load, idle reset
+    blocked --> cancelled: preset load, superseded by a breakdown
+    error --> cancelled: preset load, superseded by a breakdown
     resolved --> [*]
     cancelled --> [*]
 ```
@@ -408,7 +409,7 @@ Node runs everything on one thread. "Concurrency" here means overlapping async o
 | `ctx.sleep()` clears its timer on abort. `sim.waitMinutes()` removes its waiter and rejects with `code: 'CANCELLED'` | `sleep()`, `engine.js` `waitMinutes()` |
 | The Kwal rail checks the signal between steps (`stopIfCancelled()`) | `kwal/rail.js` |
 | A cancelled run ends quietly: `launch().catch` ignores aborted runs, `finally` releases the clock hold and the maintenance lockout | `launch()` |
-| `sim.reset()` cancels every outstanding waiter and clears all holds, so a wait from the old shift can never resolve into the new one | `engine.js` `reset()` |
+| `reset()` (run by every `sim.loadPreset()`) cancels every outstanding waiter and clears all holds, so a wait from the old shift can never resolve into the new one | `engine.js` `reset()` |
 
 **Triggers:** a scenario load (`POST /api/sim/preset` → `resetIncidents()` → `cancelAll()`), a breakdown that supersedes a predictive job stuck on the manager (`onMachineDown()`), the judge-mode idle reset, and the `preset` safety-net listener.
 
@@ -445,7 +446,7 @@ The pipeline can run several incidents at once: incidents live in a `Map`, each 
 | `config.mockAi` | `MOCK_AI=1` **or** `OPENAI_API_KEY` empty | `decide()` returns the mock (the heuristic prior mapped onto the options). `say()` returns its fixed fallback sentence. |
 | `chainActive()` | `TREASURY_PRIVATE_KEY` set **and** `ONCHAIN != 0` **and** not `mockReap` | Real USDC payouts, plus live treasury balances in the HUD |
 | `kwalRailEnabled()` | a valid Kwal session file **and** `KWAL != 0` **and** not `mockReap` **and** not `judge` | AUTO orders try the vault before the Reap card |
-| `config.judge` | `JUDGE_MODE=1` | Live AI + live Reap search and quotes. Checkout simulated with in-game approve/reject. Capped tiny payouts. Idle reset ([§9.3](#93-judge-mode)). |
+| `config.judge` | `JUDGE_MODE=1` | Live AI + live Reap search and quotes. Checkout simulated with in-game approve/reject. Kwal rail off. Idle reset ([§9.3](#93-judge-mode)). The tiny, capped payouts come from the companion `TECH_PAYOUT_SCALE` and `ONCHAIN_MAX_PAYOUTS` values in `render.yaml`, not from the flag itself. |
 
 `npm run dev:mock` sets `MOCK_REAP=1 MOCK_AI=1` and runs the full game with no keys and no network. The active flags are exposed in `GET /api/health` and `STATE.mode`. The game shows them as badges in the menu and on the scenario picker (`modeBadges()` in `ui/hud.js`).
 
@@ -611,7 +612,7 @@ Verified by the team against the live sandbox and testnet on 9 Oct 2026. Details
 | Reap catalog | a ~80-query sweep found ~1,750 purchasable products. All 15 machine parts resolve to live listings | live search first. 12 verified listings are kept as `FALLBACK_OFFERS` |
 | OpenAI Decisions API | `gpt-6-luna` returns per-option probabilities + confidence. When given the heuristic prior, the model copied it | the prior is withheld from the Decisions API (`prior: undefined` in `openaiDecisions()`) and shown to the user instead |
 | Kwal (Payward) | vault `0x14735b01eD166F386EFE0aD27A2791498b44572f` deployed and funded with 8 USDC, but the variant and quote endpoints return HTTP 400 `ParticipantBadRequest` for every product | automatic fallback to the Reap card with a logged reason, plus a 120 s cooldown |
-| Ink Sepolia | treasury `0x081f8183Ff9EE52958644F63B9567e309b2bD97c` sent a real 0.05 USDC technician payout test ([tx](https://explorer-sepolia.inkonchain.com/tx/0x77816ec667d73c0cffaceb2096d10d7e878788c7f97c189a722c2861fd794e12)). Gas is ~6e-8 ETH per transfer | onchain payouts on by default when a key is present, scaled 1:100 (1:10,000 in judge mode) |
+| Ink Sepolia | treasury `0x081f8183Ff9EE52958644F63B9567e309b2bD97c` sent a real 0.05 USDC technician payout test ([tx](https://explorer-sepolia.inkonchain.com/tx/0x77816ec667d73c0cffaceb2096d10d7e878788c7f97c189a722c2861fd794e12)). Gas is ~6e-8 ETH per transfer | onchain payouts on by default when a key is present, scaled 1:100 (1:10,000 with the `render.yaml` demo settings) |
 
 ---
 

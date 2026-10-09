@@ -12,7 +12,7 @@ Wrench-bot is the agent in Wrench-bot Factory. When a machine stops or a part st
 
 | Claim | Where to verify |
 |---|---|
-| The agent sees only what a real plant shows: signal readings and log lines. It never reads hidden part health. | `server/src/sim/engine.js` `telemetryContext()`, `snapshot()` (no `health` field). `grep -rn health server/src/agent` matches only `sim.isHealthy` (a fault-status check) and prompt text. |
+| The agent sees only what a real plant shows: signal readings and log lines. It never reads hidden part health. | `server/src/sim/engine.js` `telemetryContext()`, `snapshot()` (no `health` field). `grep -rn health server/src/agent` matches only `sim.isHealthy` (a fault-status check), the local variable holding its result, and prompt text. |
 | Diagnosis is a **typed decision**. The options are the candidate parts, and the answer comes back as a probability for each one. | `server/src/agent/orchestrator.js` `diagnose()` → `server/src/agent/decide.js` `decide({ kind: 'choice' })` → `openaiDecisions()` (`POST /v1/decisions`, `gpt-6-luna`) |
 | A naive fault-code heuristic is computed, shown to the user next to the model's answer, and **withheld from the model**. Measured: when the model was given the heuristic's numbers, it copied them (servo 0.95). | `server/src/sim/diagnostics.js` `scoreComponents()`. The withholding is in `decide.js` `openaiDecisions()` (`prior: undefined`). The side-by-side display is in `game/src/ui/agentpanel.js` `#diagnosis()`. |
 | The model only recommends. Spending limits are plain code, not a model. | `server/src/agent/policy.js` `evaluate()`: trusted store → BLOCK, budget / auto-approve limit / confidence threshold → ESCALATE |
@@ -112,7 +112,7 @@ The input contains no part health, no scenario name and no heuristic prior. `com
 
 ## 4. The monitor: when an incident opens
 
-Incidents are opened only by the monitor (`orchestrator.js` `startMonitor()`), never by hand. The old manual `POST /api/incidents` route was removed.
+Incidents are opened only by the monitor (`orchestrator.js` `startMonitor()`), never by hand. No HTTP route creates an incident: `POST /api/incidents/:id/retry` only restarts one the monitor already opened.
 
 | Trigger | Rule | Code |
 |---|---|---|
@@ -156,7 +156,7 @@ decide({
 | 1 | `openaiDecisions`: OpenAI Decisions API, `gpt-6-luna` (public beta since 6 Oct 2026) | live, verified 9 Oct 2026 | **No** (`prior: undefined`) |
 | 2 | `jev`: TypeSafe Jev | stub, returns `null` | n/a |
 | 3 | `gptStructured`: Chat Completions with a strict JSON schema of one probability per option, model `config.openai.model` (default `gpt-5-mini`) | used only if #1 fails | Yes, with a system instruction to override it when the signals disagree |
-| 4 | `mock`: offline, deterministic | used when `MOCK_AI=1` or there is no API key | Returns the prior unchanged |
+| 4 | `mock`: offline, deterministic | used when `MOCK_AI=1`, when there is no API key, or when every provider above fails | Returns the prior unchanged |
 
 ### 5.2 The naive prior (shown to the user, not to the model)
 
@@ -167,7 +167,7 @@ score(part) = 0.6 × max severity of the part's own signals + 0.4 × (part has a
 p(part)     = softmax(score / 0.25) over parts not ruled out
 ```
 
-It trusts fault codes. At 08:06 in Brownout the scores are: servo 0.6 × 1.017 + 0.4 = **1.010**; supply 0.6 × 0.641 = **0.385**; driver 0.6 × 0.318 = **0.191**; e-stop **0.006**. That gives **servo 0.879, supply 0.072, driver 0.033, e-stop 0.016**. This matches the offline trace to three decimals, and five random seeds all gave a servo probability between 0.874 and 0.880.
+It trusts fault codes. At 08:06 in Brownout the scores are: servo 0.6 × 1.017 + 0.4 = **1.010**; supply 0.6 × 0.641 = **0.385**; driver 0.6 × 0.318 = **0.191**; e-stop **0.006**. That gives **servo 0.879, supply 0.072, driver 0.033, e-stop 0.016**. This matches the offline trace to three decimals, and across eight seeds the servo probability stayed between 0.872 and 0.881.
 
 The prior has three uses:
 1. **The comparison the user sees.** `AGENT_DIAGNOSIS` carries both `probabilities` (the model's) and `prior` (the rule's). The agent panel draws two bars per part, labelled with the provider name and "fault-code rule" (`agentpanel.js` `#diagnosis()`).
@@ -211,7 +211,7 @@ After every swap, `verify()` checks the simulator (section 10). If the machine i
 1. The replaced part is added to `rt.ruledOut` and to `incident.ruledOut` (part names, shown struck through in the agent panel).
 2. The plant log says which of two cases it hit:
    - **The new part trips the same way.** Something upstream is pushing it: `Still faulting: E-ARM-310. Not the root cause. Re-diagnosing.`
-   - **The new part reads OK, but another code is still active:** `New <part> reads OK, but <codes> still active. Next one.`
+   - **The new part reads OK, but another code is still active:** `New <part> reads OK, but <codes> still active. Re-diagnosing.` (the speech bubble says "Next one.")
 3. The technician is still paid, because the work was done. The payout runs in the background while the agent diagnoses again (`run()`, `payTechnician(..., fixed=false)`).
 4. The next attempt calls `scoreComponents(machineId, { ruledOut })` and `decide()` with the ruled-out part removed from the options and listed in `context.ruledOut`.
 5. After `MAX_ATTEMPTS = 3`, or when every part has been ruled out, the incident stops with `GAVE_UP` ("I need a human"). The manager can restart it with `POST /api/incidents/:id/retry` (`retryIncident()`). A retry resets the attempt counter and clears the ruled-out list only if every part was ruled out.
@@ -326,7 +326,7 @@ sequenceDiagram
 | `predictiveMaintenance` | off (on in "Grinding noise" and "Free play") | toggle | Lets the monitor open predictive incidents |
 | `expressForCriticalOnly` | true | not on the desk (`PUT /api/policy` only) | Limits express shipping to critical machines |
 
-No reasons → **AUTO**, "Within limits: $X ≤ $60, 81% sure". All reasons are collected, so the manager sees every rule an order breaks. Going over budget escalates rather than blocks, because whether an urgent repair is worth breaking the budget is the manager's call. `recordSpend()` adds the final paid amount to `spent` only after a checkout completes. The desk UI is `game/src/ui/desk.js` (`SLIDERS`). Edits go through `PUT /api/policy` and are validated by `clean()`: unknown keys are ignored and values are clamped.
+No reasons → **AUTO**, "Within limits: $X ≤ $60, 81% sure". All reasons are collected, so the manager sees every rule an order breaks. Going over budget escalates rather than blocks, because whether an urgent repair is worth breaking the budget is the manager's call. `recordSpend()` adds the final paid amount to `spent` only after a checkout completes. The desk UI is `game/src/ui/desk.js` (`SLIDERS`). Edits go through `PUT /api/policy` and are validated by `clean()`: unknown keys and invalid values (negative amounts, non-numbers, non-boolean toggles) are ignored, and the confidence threshold is clamped to 0–1.
 
 ### 11.2 What the model cannot do
 
@@ -347,7 +347,7 @@ No reasons → **AUTO**, "Within limits: $X ≤ $60, 81% sure". All reasons are 
 | Kwal vault | An onchain USDC deposit backs a card. The deposit is the spending cap. | Vault `0x14735b01eD166F386EFE0aD27A2791498b44572f` funded with 8 USDC. Kwal's variant and quote endpoints return `400 ParticipantBadRequest`, so AUTO orders fall back to the Reap card automatically (`payFromVault()` → `null`, with a 120 s cooldown in `server/src/kwal/rail.js`) |
 | Treasury | Technician payouts cannot exceed the wallet balance | `technicians.js` `transfer()` checks the USDC and ETH balances before sending |
 
-**Judge mode** (`JUDGE_MODE=1`, `config.judge`; the live demo linked in the README): search, quotes and the model are live, but the Reap checkout is simulated (`orchestrator.js` `payDemo()`), because a public visitor cannot confirm the team's passkey. **The policy is unchanged.** AUTO orders complete at once, and ESCALATE orders wait for the game's Approve / Reject buttons (`POST /api/mock/approve/:checkoutId` → `approveDemo()`), with the same 10-minute timeout. Onchain payouts in judge mode are tiny and capped. Simulated entries are flagged `simulated: true` in the ledger and shown with a "demo" badge.
+**Judge mode** (`JUDGE_MODE=1`, `config.judge`; the live demo linked in the README): search, quotes and the model are live, but the Reap checkout is simulated (`orchestrator.js` `payDemo()`), because a public visitor cannot confirm the team's passkey. **The policy is unchanged.** AUTO orders complete after a short pause (1.2 s ÷ √speed), and ESCALATE orders wait for the game's Approve / Reject buttons (`POST /api/mock/approve/:checkoutId` → `approveDemo()`), with the same 10-minute timeout. With the demo settings in `render.yaml` (`TECH_PAYOUT_SCALE=0.0001`, `ONCHAIN_MAX_PAYOUTS=200`), onchain payouts are tiny and capped. Simulated entries are flagged `simulated: true` in the ledger and shown with a "demo" badge.
 
 ---
 
@@ -359,7 +359,7 @@ No reasons → **AUTO**, "Within limits: $X ≤ $60, 81% sure". All reasons are 
 
 ### 12.1 Minute by minute: what the log shows and what the rule concludes
 
-Recorded offline with `server/src/sim/engine.js` and `diagnostics.js`, seed 7. Readings vary by about ±0.05 between seeds, and the event times did not change across 5 seeds.
+Recorded offline with `server/src/sim/engine.js` and `diagnostics.js`, seed 7. Readings shift slightly between seeds (over eight seeds the 08:06 ripple ranged from 292 to 305 mV), but the time of every log event stayed the same.
 
 | Clock | New plant-log lines | 24V rail | Ripple | Servo position error | Servo temp | Fault-code rule's top pick |
 |---|---|---|---|---|---|---|
@@ -393,7 +393,7 @@ This is what the code does with the measured model output. Times come from the `
 3. **Quote.** A live Reap quote with express shipping, because the Robot Arm is critical and stopped.
 4. **Policy → ESCALATE.** `POLICY_DECISION { action: 'ESCALATE', reasons: ['Not sure enough (59% < 75%)'] }`.
 5. **Manager.** `APPROVAL_REQUIRED` opens a modal with a link to Reap's hosted approval page. In Judge mode, Approve / Reject buttons appear instead. The manager approves once.
-6. **Ship, repair.** Express delivery takes 3 game-min, then the technician's 2 min travel and 4 min swap. `engine.js` `replaceComponent()` resets the supply, and on that same tick the log shows:
+6. **Ship, repair.** Express delivery takes 3 game-min, then the technician's 2 min travel and 4 min swap. `engine.js` `replaceComponent()` resets the supply, and on that same tick the log clears every alarm the supply caused. In the recorded run below the same swap produced:
    `E-ARM-310 cleared — Position error 0.37°` · `W-ARM-301 cleared — 24V rail 24.06 V` · `W-ARM-320 cleared — Joint speed 99%` · `M-UP Robot Arm running`.
 7. **Verify.** After the 2-min test run, `sim.isHealthy('arm')` is true. The escrow is released (1.20 USDC if Ana is chosen) and the incident resolves in **1 attempt**, with the arm stopped for about **9 game-min** (3 + 2 + 4).
 
@@ -446,7 +446,7 @@ The policy caught the wrong servo order only because of its price, not because t
 |---|---|---|---|---|---|---|
 | 1 | Open a breakdown incident | rule | n/a | monitor | code (`machine.down` from the simulator) | `orchestrator.js` `onMachineDown()` |
 | 2 | Open a predictive incident | rule | n/a | monitor | **manager** turns it on (`predictiveMaintenance`), then code (WARN ≥ 3 game-min) | `checkWarnings()` |
-| 3 | Which part is the root cause / is wearing out | **choice** | candidate part names (not ruled out; predictive: parts in WARN) | Decisions API (`gpt-6-luna`) | recommendation only: confidence feeds #8, the result is checked by #13 | `diagnose()` → `decide()` |
+| 3 | Which part is the root cause / is wearing out | **choice** | candidate part names (not ruled out; predictive: parts in WARN) | Decisions API (`gpt-6-luna`) | recommendation only: confidence feeds #7, the result is checked by #12 | `diagnose()` → `decide()` |
 | 4 | Which listing to buy | **choice** | `option_1…option_5` from the code-filtered shortlist | model (skipped if ≤ 1 listing) | code sets the shortlist (spec keywords, `maxPrice`, availability, trusted ranking) | `catalog.js` `findReplacement()` |
 | 5 | Express or standard shipping | rule | express / standard | code | **manager** setting `expressForCriticalOnly` | `wantsExpress()` |
 | 6 | Which listing to quote next after a store error | rule | up to 3 listings in ranking order | code | code | `quoteWithFallback()` |
