@@ -1,16 +1,27 @@
 # Wrench-bot Factory
 
-**An AI maintenance agent that reads a factory's sensor logs, works out which part actually failed, buys the replacement through Reap Agentic Payments, and pays the technician in USDC onchain only after the repair is verified, all within spending rules the manager controls.**
+**Agentic factory maintenance, from diagnosis to verified onchain settlement.**
 
-`Reap Agentic Payments (sandbox)` · `OpenAI Decisions API (gpt-6-luna)` · `Kwal USDC vault` · `Ink Sepolia USDC` · `Three.js` · `Node`
+Wrench-bot reads sensor logs to identify the root cause of a machine failure, purchases replacement parts through Reap Agentic Payments, and pays technicians in USDC after verifying the repair. Every purchase follows spending limits and approval rules set by the factory manager.
 
-Reap × 65labs Agentic Buildathon · Singapore · 9 Oct 2026 · Team **Reapin' It In** · Track: **Most Worthwhile Problem**
+[![Reap Agentic Payments: Sandbox](https://img.shields.io/badge/Reap_Agentic_Payments-Sandbox-2563EB?style=flat-square)](docs/PAYMENTS.md)
+[![OpenAI Decisions API: gpt-6-luna](https://img.shields.io/badge/OpenAI_Decisions_API-gpt--6--luna-0F766E?style=flat-square)](docs/AGENT.md)
+[![Kwal: USDC vault](https://img.shields.io/badge/Kwal-USDC_vault-7C3AED?style=flat-square)](docs/PAYMENTS.md)
+[![Ink Sepolia: USDC](https://img.shields.io/badge/Ink_Sepolia-USDC-7C3AED?style=flat-square)](server/src/chain/usdc.js)
+[![Three.js: 3D simulation](https://img.shields.io/badge/Three.js-3D_simulation-475569?style=flat-square)](docs/SIMULATION.md)
+[![Node.js: Backend](https://img.shields.io/badge/Node.js-Backend-475569?style=flat-square)](docs/ARCHITECTURE.md)
+
+> **Winner · Best Bridge Between Onchain and Real World**
+>
+> Reap × 65labs Agentic Buildathon · Singapore · 9 October 2026 · Team **Reapin' It In**
+
+[Quick start](#quick-start) · [Architecture](#architecture) · [Integrations](#integrations) · [Evaluation guide](docs/JUDGING.md)
 
 ![Robot Arm down: the agent walks over, reads the logs and starts diagnosing](docs/screenshots/03-breakdown.jpg)
 
 ---
 
-## TL;DR for evaluators
+## Project highlights
 
 | Claim | Where to verify |
 |---|---|
@@ -54,7 +65,7 @@ Wrench-bot runs that whole loop, diagnose → source → pay → repair → veri
 | **Manager** | Approve or reject anything escalated; change limits, budget, confidence bar and trusted stores live (Manager's Desk) | Reap's hosted approval page (passkey); `PUT /api/policy` |
 | **Onchain treasury** | Hold the vault funds (hard cap) and pay technicians after a verified fix | Kwal vault contract; [`chain/usdc.js`](server/src/chain/usdc.js); payouts are idempotent per escrow |
 
-## Real integrations (what's live, what's simulated)
+## Integrations
 
 | System | Status | Proof |
 |---|---|---|
@@ -96,7 +107,7 @@ flowchart LR
 
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/AGENT.md](docs/AGENT.md) · [docs/PAYMENTS.md](docs/PAYMENTS.md) · [docs/SIMULATION.md](docs/SIMULATION.md) · [docs/API.md](docs/API.md) · [docs/JUDGING.md](docs/JUDGING.md)
 
-## Run it
+## Quick start
 
 ```bash
 npm install
@@ -117,7 +128,7 @@ No keys? `npm run dev:mock` runs everything offline with simulated payments.
 - One quote per merchant; mixed carts are rejected (`AGENTIC_REQUEST_REJECTED`).
 - Every sandbox checkout needs a one-tap approval on the hosted page, even with `X-Simulate-Checkout: COMPLETED`. Mandates (pre-approved terms) aren't live yet, so the app's own policy decides when the agent may ask, and Reap's page stays the final human check.
 
-## Honest limits
+## Limitations
 
 - The factory, technicians and deliveries are simulated; the catalog, quotes, checkouts, vault and payouts are real sandbox/testnet systems.
 - Vault-paid parts fall back to the Reap card while Kwal's quote endpoint fails.
